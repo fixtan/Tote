@@ -30,7 +30,7 @@ pub enum Error {
     Zip(#[from] zip::result::ZipError),
 }
 
-fn io_err(path: &Path) -> impl FnOnce(io::Error) -> Error + '_ {
+pub(crate) fn io_err(path: &Path) -> impl FnOnce(io::Error) -> Error + '_ {
     move |source| Error::Io { path: path.to_path_buf(), source }
 }
 
@@ -400,3 +400,5 @@ mod tests {
         assert!(matches!(r, Err(Error::MixedParents)));
     }
 }
+
+pub mod view;

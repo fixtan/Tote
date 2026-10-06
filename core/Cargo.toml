@@ -1,12 +1,15 @@
 [package]
 name = "tote-core"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
+encoding_rs = "0.8.42"
+serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"
 time = { version = "0.3.55", features = ["local-offset"] }
-zip = { version = "8.6.0", default-features = false, features = ["deflate", "time"] }
+zip = { version = "8.6.0", default-features = false, features = ["deflate", "deflate64", "time"] }
 
 [dev-dependencies]
+encoding_rs = "0.8.42"
 tempfile = "3.27.0"

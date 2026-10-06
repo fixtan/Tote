@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tote</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="toolbar">
+    <button id="btnUp" class="icon" title="1つ上のフォルダへ (Backspace)" aria-label="1つ上のフォルダへ">↑</button>
+    <nav id="crumbs" aria-label="現在の場所"></nav>
+    <div class="spacer"></div>
+    <button id="btnExtractSel" title="選択した項目を、選んだフォルダへ展開します">選択を展開…</button>
+    <button id="btnExtractAll" class="primary" title="すべてを「ZIP名」のフォルダへ展開します">すべて展開</button>
+  </header>
+
+  <div id="warn" class="warn" hidden></div>
+
+  <main id="wrap">
+    <table id="list">
+      <thead>
+        <tr>
+          <th data-key="name" class="c-name">名前</th>
+          <th data-key="size" class="c-num">サイズ</th>
+          <th data-key="packed" class="c-num">格納</th>
+          <th data-key="type" class="c-type">種類</th>
+          <th data-key="modified" class="c-date">更新日時</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div id="empty" hidden>このフォルダは空です</div>
+  </main>
+
+  <footer class="status">
+    <span id="stInfo"></span>
+    <span id="stSel"></span>
+  </footer>
+
+  <div id="toast" role="status" hidden>
+    <span id="toastMsg"></span>
+    <button id="toastAct" hidden></button>
+  </div>
+
+  <dialog id="dlg">
+    <form method="dialog">
+      <p id="dlgMsg"></p>
+      <div class="dlg-row">
+        <button value="cancel">キャンセル</button>
+        <button value="ok" id="dlgOk" class="primary">開く</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="tree.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

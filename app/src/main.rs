@@ -4,6 +4,8 @@
 mod collect;
 mod shell;
 mod ui;
+#[cfg(feature = "viewer")]
+mod viewer;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -11,8 +13,8 @@ use std::time::Instant;
 
 use tote_core::{Options, create_zip};
 
-const USAGE: &str = "Tote — ZIP作成ツール\n\n\
-使い方:\n  tote <ファイル/フォルダ>...   ZIPを作成\n  tote --install               右クリックと「送る」に登録\n  tote --uninstall             登録を解除";
+const USAGE: &str = "Tote — ZIP作成・閲覧ツール\n\n\
+使い方:\n  tote <ファイル/フォルダ>...   ZIPを作成\n  tote --open <zip>            ZIPの中身を開く\n  tote --install               右クリック・「送る」・ZIPの関連付け候補に登録\n  tote --uninstall             登録を解除";
 
 /// この秒数以上かかったZIPは、完了をエクスプローラーで選択して知らせる
 const REVEAL_AFTER_SECS: f32 = 3.0;
@@ -24,6 +26,7 @@ fn main() {
         None => interactive_setup(),
         Some("--install") => report(shell::install(&exe()), "登録しました。右クリックメニューと「送る」に追加されています。"),
         Some("--uninstall") => report(shell::uninstall(), "登録を解除しました。"),
+        Some("--open") => open_viewer(args.get(1)),
         Some("--help" | "-h" | "/?") => ui::info(USAGE),
         Some(_) => compress_args(args.into_iter().map(PathBuf::from).collect()),
     }
@@ -37,6 +40,21 @@ fn report(r: Result<(), String>, ok_msg: &str) {
     match r {
         Ok(()) => ui::info(ok_msg),
         Err(e) => ui::error(&e),
+    }
+}
+
+/// `--open <zip>`: ZIPの中身を見る窓を開く。
+fn open_viewer(path: Option<&OsString>) {
+    let Some(p) = path else {
+        ui::error("--open にはZIPファイルのパスを指定してください");
+        return;
+    };
+    #[cfg(feature = "viewer")]
+    viewer::run(PathBuf::from(p));
+    #[cfg(not(feature = "viewer"))]
+    {
+        let _ = p;
+        ui::error("このビルドにはビューアが含まれていません");
     }
 }
 
