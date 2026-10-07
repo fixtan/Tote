@@ -14,6 +14,8 @@ pub struct Config {
     pub compress_format: String,
     /// 圧縮レベルのプリセット ID（`CompressFormat::presets`）
     pub compress_level: String,
+    /// 固体圧縮（7z）。作成ダイアログで最後に選んだ値を覚える
+    pub compress_solid: bool,
     /// 実行形式・スクリプトを開く前に確認する
     pub confirm_risky: bool,
     /// 圧縮完了後にエクスプローラーで選択表示する: "never" | "slow"（時間がかかったときだけ） | "always"
@@ -30,6 +32,7 @@ impl Default for Config {
         Self {
             compress_format: "zip".into(),
             compress_level: "normal".into(),
+            compress_solid: true,
             confirm_risky: true,
             reveal: "slow".into(),
             extract_dest: "besideArchive".into(),
@@ -67,7 +70,7 @@ impl Config {
     /// 圧縮に使うオプション
     pub fn compress_options(&self) -> tote_core::Options {
         let format = tote_core::CompressFormat::from_id(&self.compress_format).unwrap_or_default();
-        tote_core::Options { output: None, level: format.level_for(&self.compress_level), format }
+        tote_core::Options { level: format.level_for(&self.compress_level), format, solid: self.compress_solid, ..Default::default() }
     }
 
     /// 圧縮が終わったあとにエクスプローラーで見せるか
@@ -150,7 +153,7 @@ mod tests {
 
     #[test]
     fn unknown_values_are_reset() {
-        let c = Config { compress_format: "rar".into(), compress_level: "ultra".into(), reveal: "x".into(), extract_dest: "y".into(), append_mode: "z".into(), confirm_risky: true }
+        let c = Config { compress_format: "rar".into(), compress_level: "ultra".into(), reveal: "x".into(), extract_dest: "y".into(), append_mode: "z".into(), confirm_risky: true, compress_solid: true }
             .sanitized();
         assert_eq!(c, Config::default());
     }

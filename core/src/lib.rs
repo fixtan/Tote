@@ -6,13 +6,13 @@
 //! - 入力が複数、またはファイル単体のときは、各項目をルート直下に入れる。
 //! - 出力先は入力と同じ場所。既存ファイルは上書きせず `name (1).zip` のように避ける。
 
-use std::collections::HashSet;
-use std::fs::{self, File};
-use std::io::{self, BufWriter};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
-use zip::write::SimpleFileOptions;
-use zip::{CompressionMethod, DateTime, ZipWriter};
+use zip::DateTime;
+
+pub use create::{create, create_zip};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -43,9 +43,12 @@ pub(crate) fn io_err(path: &Path) -> impl FnOnce(io::Error) -> Error + '_ {
 pub enum CompressFormat {
     #[default]
     Zip,
+    SevenZ,
+    TarGz,
+    Tar,
 }
 
-/// 圧縮レベルの選択肢（設定画面にそのまま出す）
+/// 圧縮レベルの選択肢（設定画面・ダイアログにそのまま出す）
 #[derive(Debug, Clone, Copy)]
 pub struct LevelPreset {
     pub id: &'static str,
@@ -61,50 +64,105 @@ const ZIP_PRESETS: &[LevelPreset] = &[
     LevelPreset { id: "best", label: "最高圧縮（遅い）", level: Some(9) },
 ];
 
+// 7z: 0 は無圧縮（COPY）、1〜9 は LZMA2 のレベル。最高でもメモリを使い過ぎない 7 までにしている
+const SEVENZ_PRESETS: &[LevelPreset] = &[
+    LevelPreset { id: "store", label: "圧縮しない（最速）", level: Some(0) },
+    LevelPreset { id: "fast", label: "速度優先", level: Some(1) },
+    LevelPreset { id: "normal", label: "標準", level: None },
+    LevelPreset { id: "best", label: "最高圧縮（遅い）", level: Some(7) },
+];
+
+const TARGZ_PRESETS: &[LevelPreset] = &[
+    LevelPreset { id: "fast", label: "速度優先", level: Some(1) },
+    LevelPreset { id: "normal", label: "標準", level: None },
+    LevelPreset { id: "best", label: "最高圧縮（遅い）", level: Some(9) },
+];
+
 impl CompressFormat {
-    pub const ALL: &'static [CompressFormat] = &[CompressFormat::Zip];
+    pub const ALL: &'static [CompressFormat] =
+        &[CompressFormat::Zip, CompressFormat::SevenZ, CompressFormat::TarGz, CompressFormat::Tar];
 
     pub fn id(self) -> &'static str {
         match self {
             CompressFormat::Zip => "zip",
+            CompressFormat::SevenZ => "7z",
+            CompressFormat::TarGz => "targz",
+            CompressFormat::Tar => "tar",
         }
     }
 
     pub fn label(self) -> &'static str {
         match self {
             CompressFormat::Zip => "ZIP",
+            CompressFormat::SevenZ => "7z",
+            CompressFormat::TarGz => "tar.gz",
+            CompressFormat::Tar => "tar（圧縮なし）",
         }
     }
 
     pub fn extension(self) -> &'static str {
         match self {
             CompressFormat::Zip => "zip",
+            CompressFormat::SevenZ => "7z",
+            CompressFormat::TarGz => "tar.gz",
+            CompressFormat::Tar => "tar",
         }
     }
 
+    /// 圧縮レベルの選択肢。空ならレベルの概念がない形式
     pub fn presets(self) -> &'static [LevelPreset] {
         match self {
             CompressFormat::Zip => ZIP_PRESETS,
+            CompressFormat::SevenZ => SEVENZ_PRESETS,
+            CompressFormat::TarGz => TARGZ_PRESETS,
+            CompressFormat::Tar => &[],
         }
+    }
+
+    /// パスワード（暗号化）を付けられる形式か
+    pub fn supports_password(self) -> bool {
+        matches!(self, CompressFormat::Zip | CompressFormat::SevenZ)
+    }
+
+    /// 固体圧縮（全ファイルをまとめて圧縮して圧縮率を上げる）を選べる形式か
+    pub fn supports_solid(self) -> bool {
+        matches!(self, CompressFormat::SevenZ)
+    }
+
+    /// ファイル名まで暗号化できる形式か
+    pub fn supports_name_encryption(self) -> bool {
+        matches!(self, CompressFormat::SevenZ)
     }
 
     pub fn from_id(id: &str) -> Option<CompressFormat> {
         Self::ALL.iter().copied().find(|f| f.id() == id)
     }
 
-    /// プリセットIDからレベル値を引く。知らないIDは既定（None）。
+    /// プリセットIDからレベル値を引く。その形式に無いIDは既定（None）。
     pub fn level_for(self, preset_id: &str) -> Option<i64> {
         self.presets().iter().find(|p| p.id == preset_id).and_then(|p| p.level)
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Options {
     /// 出力先を明示する場合。Noneなら入力から自動決定。
     pub output: Option<PathBuf>,
     /// 圧縮レベル（形式ごとの値。ZIPは 0-9）。Noneで既定。
     pub level: Option<i64>,
     pub format: CompressFormat,
+    /// パスワード（暗号化は AES-256）。対応しない形式では `create` がエラーにする。
+    pub password: Option<String>,
+    /// 固体圧縮（7z）。既定は true
+    pub solid: bool,
+    /// ファイル名も暗号化する（7z。パスワードが無いと中身の一覧も見えなくなる）
+    pub encrypt_names: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options { output: None, level: None, format: CompressFormat::default(), password: None, solid: true, encrypt_names: false }
+    }
 }
 
 #[derive(Debug)]
@@ -116,7 +174,7 @@ pub struct Summary {
 }
 
 /// 入力から出力ZIPのパスを決める（衝突回避は含まない）。
-fn default_output_stem(inputs: &[PathBuf]) -> Result<(PathBuf, String), Error> {
+pub(crate) fn default_output_stem(inputs: &[PathBuf]) -> Result<(PathBuf, String), Error> {
     let first = &inputs[0];
     if first.parent().is_none() {
         return Err(Error::RootInput);
@@ -157,10 +215,19 @@ fn default_output_stem(inputs: &[PathBuf]) -> Result<(PathBuf, String), Error> {
     Ok((parent, stem))
 }
 
-fn file_name(p: &Path) -> String {
+pub(crate) fn file_name(p: &Path) -> String {
     p.file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "archive".to_string())
+}
+
+/// 入力から出力先の候補（同じ場所・空いている名前）を決める。作成ダイアログの初期値用。
+pub fn suggest_output(inputs: &[PathBuf], format: CompressFormat) -> Result<PathBuf, Error> {
+    if inputs.is_empty() {
+        return Err(Error::NoInput);
+    }
+    let (dir, stem) = default_output_stem(inputs)?;
+    Ok(unique_path(&dir, &stem, format.extension()))
 }
 
 /// `dir/stem.zip` が存在すれば `dir/stem (1).zip`, `(2)` ... と空きを探す。
@@ -202,171 +269,10 @@ pub(crate) fn mtime_of(meta: &fs::Metadata) -> DateTime {
         .unwrap_or_default()
 }
 
-struct Ctx<'a> {
-    zip: ZipWriter<BufWriter<File>>,
-    opts: SimpleFileOptions,
-    used: HashSet<String>,
-    out_abs: PathBuf,
-    files: usize,
-    dirs: usize,
-    skipped: Vec<PathBuf>,
-    _marker: std::marker::PhantomData<&'a ()>,
-}
-
-impl Ctx<'_> {
-    /// ZIP内の名前が重複したら "name (1).ext" 形式で避ける（ルート直下の同名衝突用）。
-    fn claim(&mut self, name: String) -> String {
-        if self.used.insert(name.clone()) {
-            return name;
-        }
-        let (base, ext) = match name.rfind('.') {
-            Some(i) if i > 0 && !name[i..].contains('/') => (name[..i].to_string(), name[i..].to_string()),
-            _ => (name.clone(), String::new()),
-        };
-        for n in 1.. {
-            let cand = format!("{base} ({n}){ext}");
-            if self.used.insert(cand.clone()) {
-                return cand;
-            }
-        }
-        unreachable!()
-    }
-
-    fn add_dir_entry(&mut self, zip_path: &str, meta: &fs::Metadata) -> Result<(), Error> {
-        let o = self.opts.last_modified_time(mtime_of(meta));
-        self.zip.add_directory(format!("{zip_path}/"), o)?;
-        self.dirs += 1;
-        Ok(())
-    }
-
-    fn add_file(&mut self, zip_path: &str, path: &Path, meta: &fs::Metadata) -> Result<(), Error> {
-        let o = self.opts.last_modified_time(mtime_of(meta)).large_file(meta.len() >= 0xFFFF_FFFF);
-        self.zip.start_file(zip_path, o)?;
-        let mut f = File::open(path).map_err(io_err(path))?;
-        io::copy(&mut f, &mut self.zip).map_err(io_err(path))?;
-        self.files += 1;
-        Ok(())
-    }
-
-    /// `path` をZIP内の `zip_path` として追加（フォルダなら再帰）。
-    fn add_tree(&mut self, path: &Path, zip_path: &str) -> Result<(), Error> {
-        let meta = fs::symlink_metadata(path).map_err(io_err(path))?;
-        if meta.file_type().is_symlink() {
-            self.skipped.push(path.to_path_buf());
-            return Ok(());
-        }
-        if meta.is_dir() {
-            self.add_dir_entry(zip_path, &meta)?;
-            self.add_children(path, zip_path)?;
-        } else if meta.is_file() {
-            // 出力ZIP自身を取り込まない
-            if fs::canonicalize(path).map(|p| p == self.out_abs).unwrap_or(false) {
-                return Ok(());
-            }
-            self.add_file(zip_path, path, &meta)?;
-        } else {
-            self.skipped.push(path.to_path_buf());
-        }
-        Ok(())
-    }
-
-    /// フォルダの中身を `prefix` 配下に追加。prefixが空ならルート直下。
-    fn add_children(&mut self, dir: &Path, prefix: &str) -> Result<(), Error> {
-        let mut entries: Vec<_> = fs::read_dir(dir)
-            .map_err(io_err(dir))?
-            .collect::<Result<_, _>>()
-            .map_err(io_err(dir))?;
-        entries.sort_by_key(|e| e.file_name());
-        for e in entries {
-            let name = e.file_name().to_string_lossy().into_owned();
-            let zp = if prefix.is_empty() { name } else { format!("{prefix}/{name}") };
-            let zp = if prefix.is_empty() { self.claim(zp) } else { zp };
-            self.add_tree(&e.path(), &zp)?;
-        }
-        Ok(())
-    }
-}
-
-/// `opts.format` の書庫を作る。
-pub fn create(inputs: &[PathBuf], opts: &Options) -> Result<Summary, Error> {
-    match opts.format {
-        CompressFormat::Zip => create_zip(inputs, opts),
-    }
-}
-
-/// ZIPを作る。失敗時は作りかけの出力ファイルを削除する。
-pub fn create_zip(inputs: &[PathBuf], opts: &Options) -> Result<Summary, Error> {
-    if inputs.is_empty() {
-        return Err(Error::NoInput);
-    }
-    for p in inputs {
-        if fs::symlink_metadata(p).is_err() {
-            return Err(Error::NotFound(p.clone()));
-        }
-    }
-
-    let output = match &opts.output {
-        Some(o) => o.clone(),
-        None => {
-            let (dir, stem) = default_output_stem(inputs)?;
-            unique_path(&dir, &stem, "zip")
-        }
-    };
-
-    let file = File::create(&output).map_err(io_err(&output))?;
-    let out_abs = fs::canonicalize(&output).map_err(io_err(&output))?;
-
-    let mut fo = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-    match opts.level {
-        Some(0) => fo = fo.compression_method(CompressionMethod::Stored),
-        Some(l) => fo = fo.compression_level(Some(l)),
-        None => {}
-    }
-
-    let mut ctx = Ctx {
-        zip: ZipWriter::new(BufWriter::new(file)),
-        opts: fo,
-        used: HashSet::new(),
-        out_abs,
-        files: 0,
-        dirs: 0,
-        skipped: Vec::new(),
-        _marker: std::marker::PhantomData,
-    };
-
-    let result = (|| -> Result<(), Error> {
-        let single_dir = inputs.len() == 1 && fs::metadata(&inputs[0]).map(|m| m.is_dir()).unwrap_or(false);
-        if single_dir {
-            // フォルダ単体: 中身をルート直下へ（二重フォルダ防止）
-            ctx.add_children(&inputs[0], "")?;
-        } else {
-            for p in inputs {
-                let name = ctx.claim(file_name(p));
-                ctx.add_tree(p, &name)?;
-            }
-        }
-        Ok(())
-    })();
-
-    let Ctx { zip, files, dirs, skipped, .. } = ctx;
-    let finished = result.and_then(|_| {
-        let mut w = zip.finish()?;
-        io::Write::flush(&mut w).map_err(io_err(&output))?;
-        Ok(())
-    });
-
-    match finished {
-        Ok(()) => Ok(Summary { output, files, dirs, skipped }),
-        Err(e) => {
-            let _ = fs::remove_file(&output);
-            Err(e)
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
     use std::io::Read;
 
     fn names(zip_path: &Path) -> Vec<String> {
@@ -470,5 +376,7 @@ mod tests {
 }
 
 pub mod append;
+mod create;
 pub mod formats;
+mod plan;
 pub mod view;

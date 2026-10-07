@@ -86,7 +86,7 @@ async function boot({ supported = true, failApply = false } = {}) {
   s.d.getElementById('confirmRisky').checked = false; s.change(s.d.getElementById('confirmRisky'));
   s.change(s.d.getElementById('reveal'), 'never');
   await sleep(20);
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(s.st.config)), { compressFormat: 'zip', compressLevel: 'best', confirmRisky: false, reveal: 'never', extractDest: 'besideArchive', appendMode: 'fast' });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(s.st.config)), { compressFormat: 'zip', compressLevel: 'best', compressSolid: true, confirmRisky: false, reveal: 'never', extractDest: 'besideArchive', appendMode: 'fast' });
   ok('設定の変更は即保存される');
 
   // 4. 修復

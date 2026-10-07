@@ -412,7 +412,7 @@ fn compress_level_presets_change_zip_method_and_size() {
     for id in ["store", "normal", "best"] {
         let out = t.path().join(format!("{id}.zip"));
         let f = CompressFormat::Zip;
-        let opts = Options { output: Some(out.clone()), level: f.level_for(id), format: f };
+        let opts = Options { output: Some(out.clone()), level: f.level_for(id), format: f, ..Options::default() };
         create(&[src.clone()], &opts).unwrap();
         let info = view::list(&out).unwrap();
         sizes.push((info.entries[0].method.clone(), fs::metadata(&out).unwrap().len()));

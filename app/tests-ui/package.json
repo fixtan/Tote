@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "test": "node --test tree.test.js",
-    "test:dom": "node dom/viewer.test.js && node dom/settings.test.js"
+    "test:dom": "node dom/viewer.test.js && node dom/settings.test.js && node dom/create.test.js"
   },
   "devDependencies": {
     "jsdom": "^29.1.1"

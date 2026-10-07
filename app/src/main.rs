@@ -6,6 +6,8 @@ mod config;
 mod shell;
 mod ui;
 #[cfg(feature = "viewer")]
+mod creator;
+#[cfg(feature = "viewer")]
 mod gui;
 #[cfg(feature = "viewer")]
 mod settings;
@@ -18,7 +20,7 @@ use std::time::Instant;
 
 
 const USAGE: &str = "Tote — 書庫の作成・閲覧ツール\n\n\
-使い方:\n  tote                         設定画面を開く（右クリック登録・圧縮設定など）\n  tote <ファイル/フォルダ>...   ZIPを作成\n  tote --open <書庫>           書庫の中身を開く（zip 7z rar gz tgz tar cab lzh iso）\n  tote --install               右クリック・「送る」・ZIPの関連付け候補を登録\n  tote --uninstall             登録をすべて解除";
+使い方:\n  tote                         設定画面を開く（右クリック登録・圧縮設定など）\n  tote --create <ファイル/フォルダ>...  形式などを選んで書庫を作成（ダイアログ）\n  tote <ファイル/フォルダ>...   そのまま圧縮（設定の形式で直接作る）\n  tote --open <書庫>           書庫の中身を開く（zip 7z rar gz tgz tar cab lzh iso）\n  tote --install               右クリック・「送る」・ZIPの関連付け候補を登録\n  tote --uninstall             登録をすべて解除";
 
 fn main() {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
@@ -30,6 +32,7 @@ fn main() {
         }
         Some("--uninstall") => report(shell::uninstall_all(&mut shell::System), "登録を解除しました。"),
         Some("--open") => open_viewer(args.get(1)),
+        Some("--create") => create_dialog(args.into_iter().skip(1).map(PathBuf::from).collect()),
         Some("--help" | "-h" | "/?") => ui::info(USAGE),
         Some(_) => compress_args(args.into_iter().map(PathBuf::from).collect()),
     }
@@ -58,6 +61,38 @@ fn open_viewer(path: Option<&OsString>) {
     {
         let _ = p;
         ui::error("このビルドにはビューアが含まれていません");
+    }
+}
+
+/// `--create <パス>...`: 形式などを選んで書庫を作るダイアログを開く。
+/// 右クリックで複数選択すると選択数ぶんプロセスが起動されるので、圧縮と同じく引数を集約する
+/// （ダイアログを開く前にロックを手放すため、集めきってから開く）。
+fn create_dialog(paths: Vec<PathBuf>) {
+    if paths.is_empty() {
+        ui::error("--create には書庫に入れるファイルかフォルダのパスを指定してください");
+        return;
+    }
+    let all = if paths.len() > 1 {
+        paths // 「送る」は1プロセスで全部届く
+    } else {
+        let dir = collect::default_spool_dir();
+        if let Err(e) = collect::submit(&dir, &paths) {
+            ui::error(&format!("一時フォルダへの書き込みに失敗しました: {e}"));
+            return;
+        }
+        let mut all = Vec::new();
+        collect::drain_as_leader(&dir, collect::DEBOUNCE, |batch| all.extend(batch));
+        all
+    };
+    if all.is_empty() {
+        return; // 別のプロセスがリーダーになってまとめて開く
+    }
+    #[cfg(feature = "viewer")]
+    gui::run(gui::Mode::Create(all));
+    #[cfg(not(feature = "viewer"))]
+    {
+        let _ = all;
+        ui::error("このビルドにはダイアログが含まれていません");
     }
 }
 

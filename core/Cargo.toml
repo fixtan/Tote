@@ -1,6 +1,6 @@
 [package]
 name = "tote-core"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.94"
 
@@ -16,7 +16,7 @@ encoding_rs = "0.8.42"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"
 time = { version = "0.3.55", features = ["local-offset"] }
-zip = { version = "8.6.0", default-features = false, features = ["deflate", "deflate64", "time"] }
+zip = { version = "8.6.0", default-features = false, features = ["aes-crypto", "deflate", "deflate64", "time"] }
 
 [dev-dependencies]
 encoding_rs = "0.8.42"

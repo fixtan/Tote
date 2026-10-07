@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Tote viewer window",
-  "windows": ["main", "settings"],
+  "windows": ["main", "settings", "create"],
   "permissions": ["core:default"]
 }

@@ -129,14 +129,17 @@
   function renderLevels() {
     const f = state.formats.find((x) => x.id === $('fmt').value) || state.formats[0];
     const cur = state.config.compressLevel;
-    fillSelect($('level'), f.presets.map((p) => [p.id, p.label]), f.presets.some((p) => p.id === cur) ? cur : f.presets[0].id);
+    $('level').closest('.field').hidden = f.presets.length === 0;
+    if (!f.presets.length) { $('level').replaceChildren(); return; }
+    fillSelect($('level'), f.presets.map((p) => [p.id, p.label]), f.presets.some((p) => p.id === cur) ? cur : (f.presets.find((p) => p.id === 'normal') || f.presets[0]).id);
   }
 
   function readConfig() {
     const r = document.querySelector('input[name="append"]:checked');
     return {
       compressFormat: $('fmt').value,
-      compressLevel: $('level').value,
+      compressLevel: $('level').value || state.config.compressLevel,
+      compressSolid: state.config.compressSolid !== false,
       confirmRisky: $('confirmRisky').checked,
       reveal: $('reveal').value,
       extractDest: $('extractDest').value,

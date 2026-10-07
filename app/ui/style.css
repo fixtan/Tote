@@ -228,3 +228,13 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
   max-width: 80%; overflow-wrap: anywhere; white-space: pre-line;
 }
 #drop.deny #dropBox { border-color: #a05a5a; color: #ffc4c4; }
+
+/* 書庫作成ダイアログ */
+.path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; user-select: text; }
+.namebox { display: flex; align-items: center; gap: 4px; flex: 1; justify-content: flex-end; }
+.namebox input { flex: 1; min-width: 200px; max-width: 360px; }
+.field input[type="password"], .field input:not([type]) { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; min-width: 280px; }
+.field input:focus, select:focus { outline: 1px solid var(--accent); }
+.msg { margin: 0 0 12px; padding: 8px 12px; border-radius: 6px; line-height: 1.6; white-space: pre-wrap; user-select: text; }
+.msg.error { background: #3a2121; color: #ffc4c4; border: 1px solid #7a3a3a; }
+.btnrow.end { justify-content: flex-end; }

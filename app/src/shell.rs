@@ -1,8 +1,10 @@
 //! Windows のシェル連携の登録・解除・状態確認（すべて HKCU / ユーザーフォルダ内。管理者権限は不要）。
 //!
 //! 登録する項目（設定画面でひとつずつ ON/OFF できる）:
-//!   compress   … ファイル/フォルダの右クリック「ToteでZIPに圧縮」
-//!   sendto     … 「送る」メニュー
+//!   create     … ファイル/フォルダの右クリック「Toteで書庫を作成…」（形式・圧縮率などを選ぶダイアログ）
+//!   sendto-create … 「送る」メニューの「Toteで書庫を作成…」
+//!   compress   … 右クリック「Toteでそのまま圧縮」（ダイアログなしで、設定の形式で直接作る）
+//!   sendto     … 「送る」メニューの「ToteでZIPに圧縮」（ダイアログなし）
 //!   open:<形式> … その形式の右クリック「Toteで開く」と、「プログラムから開く」の候補
 //!
 //! 注意:
@@ -28,9 +30,12 @@ pub const OPEN_GROUPS: &[(&str, &str, &[&str])] = &[
     ("iso", "ISO", &["iso"]),
 ];
 
-const MENU_LABEL: &str = "ToteでZIPに圧縮";
+const MENU_LABEL: &str = "Toteでそのまま圧縮";
 const VERB_KEY: &str = "Tote";
+const CREATE_LABEL: &str = "Toteで書庫を作成…";
+const CREATE_KEY: &str = "Tote.create";
 const SENDTO_NAME: &str = "ToteでZIPに圧縮.lnk";
+const SENDTO_CREATE_NAME: &str = "Toteで書庫を作成….lnk";
 const LEGACY_VERB_KEY: &str = "zipr";
 const LEGACY_SENDTO_NAME: &str = "ZIPに圧縮 (zipr).lnk";
 const VERB_ROOTS: [&str; 2] = [r"Software\Classes\Directory\shell", r"Software\Classes\*\shell"];
@@ -44,7 +49,7 @@ pub trait Platform {
     fn reg_delete_tree(&mut self, key: &str) -> Result<(), String>;
     fn reg_delete_value(&mut self, key: &str, name: &str) -> Result<(), String>;
     fn sendto_exists(&self, name: &str) -> bool;
-    fn sendto_create(&mut self, exe: &Path, name: &str) -> Result<(), String>;
+    fn sendto_create(&mut self, exe: &Path, name: &str, args: &[&str]) -> Result<(), String>;
     fn sendto_remove(&mut self, name: &str) -> Result<(), String>;
 }
 
@@ -57,8 +62,26 @@ pub struct ItemStatus {
     pub state: &'static str,
 }
 
-fn compress_command(exe: &str) -> String {
-    format!("\"{exe}\" \"%1\"")
+/// 右クリック動詞の項目: (キー, 表示名, 引数)
+fn verb_of(id: &str) -> Option<(&'static str, &'static str, &'static str)> {
+    match id {
+        "compress" => Some((VERB_KEY, MENU_LABEL, "")),
+        "create" => Some((CREATE_KEY, CREATE_LABEL, "--create ")),
+        _ => None,
+    }
+}
+
+/// 「送る」の項目: (ショートカット名, 引数)
+fn sendto_of(id: &str) -> Option<(&'static str, &'static [&'static str])> {
+    match id {
+        "sendto" => Some((SENDTO_NAME, &[])),
+        "sendto-create" => Some((SENDTO_CREATE_NAME, &["--create"])),
+        _ => None,
+    }
+}
+
+fn verb_command(exe: &str, args: &str) -> String {
+    format!("\"{exe}\" {args}\"%1\"")
 }
 
 fn open_command(exe: &str) -> String {
@@ -90,14 +113,24 @@ fn group_of(id: &str) -> Option<&'static (&'static str, &'static str, &'static [
 pub fn item_defs() -> Vec<(String, String, String)> {
     let mut v = vec![
         (
+            "create".to_string(),
+            "右クリックメニュー「Toteで書庫を作成…」".to_string(),
+            "形式（ZIP / 7z / tar.gz）・圧縮率・パスワードを選んで作るダイアログを開く（Win11は「その他のオプションを確認」の中）".to_string(),
+        ),
+        (
+            "sendto-create".to_string(),
+            "「送る」メニュー「Toteで書庫を作成…」".to_string(),
+            "右クリック →「送る」。ダイアログを開く。15個を超える選択はこちらが確実".to_string(),
+        ),
+        (
             "compress".to_string(),
-            "右クリックメニュー「ToteでZIPに圧縮」".to_string(),
-            "ファイル・フォルダの右クリックに追加（Win11は「その他のオプションを確認」の中）".to_string(),
+            "右クリックメニュー「Toteでそのまま圧縮」".to_string(),
+            "ダイアログなしで、設定画面で選んだ形式・圧縮率で直接作る。メニューを増やしたくなければ OFF のままで".to_string(),
         ),
         (
             "sendto".to_string(),
-            "「送る」メニュー".to_string(),
-            "右クリック →「送る」。15個を超える選択はこちらが確実".to_string(),
+            "「送る」メニュー「ToteでZIPに圧縮」".to_string(),
+            "ダイアログなしで直接作る（設定画面の形式を使う）。15個を超える選択はこちらが確実".to_string(),
         ),
     ];
     for (id, label, exts) in OPEN_GROUPS {
@@ -129,13 +162,13 @@ fn state_of<P: Platform>(p: &P, exe: &str, id: &str) -> &'static str {
         return "na";
     }
     let mut checks: Vec<(bool, bool)> = Vec::new();
-    if id == "compress" {
-        let want = compress_command(exe);
+    if let Some((key, _, args)) = verb_of(id) {
+        let want = verb_command(exe, args);
         for root in VERB_ROOTS {
-            checks.push(probe_cmd(p, &format!(r"{root}\{VERB_KEY}"), &want));
+            checks.push(probe_cmd(p, &format!(r"{root}\{key}"), &want));
         }
-    } else if id == "sendto" {
-        let e = p.sendto_exists(SENDTO_NAME);
+    } else if let Some((name, _)) = sendto_of(id) {
+        let e = p.sendto_exists(name);
         checks.push((e, e)); // ショートカットの中身は読めないので、存在だけを見る
     } else if let Some((gid, _, exts)) = group_of(id) {
         let want = open_command(exe);
@@ -176,13 +209,13 @@ fn write_verb<P: Platform>(p: &mut P, key: &str, label: &str, exe: &str, command
 
 fn register<P: Platform>(p: &mut P, exe: &Path, id: &str) -> Result<(), String> {
     let exe_s = exe.to_string_lossy().into_owned();
-    if id == "compress" {
+    if let Some((key, label, args)) = verb_of(id) {
         for root in VERB_ROOTS {
-            write_verb(p, &format!(r"{root}\{VERB_KEY}"), MENU_LABEL, &exe_s, &compress_command(&exe_s))?;
+            write_verb(p, &format!(r"{root}\{key}"), label, &exe_s, &verb_command(&exe_s, args))?;
         }
         Ok(())
-    } else if id == "sendto" {
-        p.sendto_create(exe, SENDTO_NAME)
+    } else if let Some((name, args)) = sendto_of(id) {
+        p.sendto_create(exe, name, args)
     } else if let Some((gid, label, exts)) = group_of(id) {
         let cmd = open_command(&exe_s);
         let pk = progid_key(gid);
@@ -200,13 +233,13 @@ fn register<P: Platform>(p: &mut P, exe: &Path, id: &str) -> Result<(), String> 
 }
 
 fn unregister<P: Platform>(p: &mut P, id: &str) -> Result<(), String> {
-    if id == "compress" {
+    if let Some((key, _, _)) = verb_of(id) {
         for root in VERB_ROOTS {
-            p.reg_delete_tree(&format!(r"{root}\{VERB_KEY}"))?;
+            p.reg_delete_tree(&format!(r"{root}\{key}"))?;
         }
         Ok(())
-    } else if id == "sendto" {
-        p.sendto_remove(SENDTO_NAME)
+    } else if let Some((name, _)) = sendto_of(id) {
+        p.sendto_remove(name)
     } else if let Some((gid, _, exts)) = group_of(id) {
         for ext in *exts {
             p.reg_delete_tree(&open_verb_key(ext))?;
@@ -253,10 +286,10 @@ pub fn repair<P: Platform>(p: &mut P, exe: &Path) -> Result<usize, String> {
     Ok(n)
 }
 
-/// 初期セット（`--install` 用）: 圧縮・送る・ZIPを開く
+/// 初期セット（`--install` 用）: 書庫を作成（右クリック・送る）・ZIPを開く
 pub fn install_defaults<P: Platform>(p: &mut P, exe: &Path) -> Result<(), String> {
     let wants: Vec<(String, bool)> =
-        ["compress", "sendto", "open:zip"].iter().map(|s| (s.to_string(), true)).collect();
+        ["create", "sendto-create", "open:zip"].iter().map(|s| (s.to_string(), true)).collect();
     apply(p, exe, &wants)
 }
 
@@ -332,9 +365,12 @@ mod win {
             sendto_dir().is_ok_and(|d| d.join(name).exists())
         }
 
-        fn sendto_create(&mut self, exe: &Path, name: &str) -> Result<(), String> {
+        fn sendto_create(&mut self, exe: &Path, name: &str, args: &[&str]) -> Result<(), String> {
             let lnk = sendto_dir()?.join(name);
-            let link = mslnk::ShellLink::new(exe).map_err(|e| format!("ショートカット作成に失敗: {e}"))?;
+            let mut link = mslnk::ShellLink::new(exe).map_err(|e| format!("ショートカット作成に失敗: {e}"))?;
+            if !args.is_empty() {
+                link.set_arguments(Some(args.join(" ")));
+            }
             link.create_lnk(&lnk).map_err(|e| format!("ショートカット作成に失敗: {e}"))
         }
 
@@ -373,7 +409,7 @@ impl Platform for System {
     fn sendto_exists(&self, _: &str) -> bool {
         false
     }
-    fn sendto_create(&mut self, _: &Path, _: &str) -> Result<(), String> {
+    fn sendto_create(&mut self, _: &Path, _: &str, _: &[&str]) -> Result<(), String> {
         Err("右クリック登録は Windows 専用です".into())
     }
     fn sendto_remove(&mut self, _: &str) -> Result<(), String> {
@@ -421,7 +457,7 @@ mod tests {
         fn sendto_exists(&self, name: &str) -> bool {
             self.sendto.contains(name)
         }
-        fn sendto_create(&mut self, _: &Path, name: &str) -> Result<(), String> {
+        fn sendto_create(&mut self, _: &Path, name: &str, _: &[&str]) -> Result<(), String> {
             self.sendto.insert(name.to_string());
             Ok(())
         }
@@ -449,7 +485,7 @@ mod tests {
     fn fresh_machine_everything_is_off() {
         let p = Mem::default();
         let s = status(&p, Path::new(EXE));
-        assert_eq!(s.len(), 2 + OPEN_GROUPS.len());
+        assert_eq!(s.len(), 4 + OPEN_GROUPS.len());
         assert!(s.iter().all(|i| i.state == "off"));
     }
 
@@ -527,11 +563,29 @@ mod tests {
     }
 
     #[test]
-    fn install_defaults_is_compress_sendto_and_zip() {
+    fn install_defaults_is_create_dialog_and_zip_only() {
         let mut p = Mem::default();
         install_defaults(&mut p, Path::new(EXE)).unwrap();
         let on_ids: Vec<String> = status(&p, Path::new(EXE)).into_iter().filter(|s| s.state == "on").map(|s| s.id).collect();
-        assert_eq!(on_ids, ["compress", "sendto", "open:zip"]);
+        assert_eq!(on_ids, ["create", "sendto-create", "open:zip"], "直圧縮の項目は既定では登録しない");
+    }
+
+    #[test]
+    fn create_and_direct_compress_are_independent_items() {
+        let mut p = Mem::default();
+        apply(&mut p, Path::new(EXE), &[on("create")]).unwrap();
+        assert_eq!(st(&p, EXE, "create"), "on");
+        assert_eq!(st(&p, EXE, "compress"), "off");
+        let cmd = p.reg_get(r"Software\Classes\*\shell\Tote.create\command", "").unwrap();
+        assert_eq!(cmd, format!("\"{EXE}\" --create \"%1\""));
+        assert_eq!(p.reg_get(r"Software\Classes\Directory\shell\Tote.create", "").unwrap(), "Toteで書庫を作成…");
+        // 直圧縮は今まで通りの引数
+        apply(&mut p, Path::new(EXE), &[on("compress"), on("sendto-create")]).unwrap();
+        assert_eq!(p.reg_get(r"Software\Classes\*\shell\Tote\command", "").unwrap(), format!("\"{EXE}\" \"%1\""));
+        assert!(p.sendto.contains("Toteで書庫を作成….lnk") && !p.sendto.contains("ToteでZIPに圧縮.lnk"));
+        apply(&mut p, Path::new(EXE), &[off("create")]).unwrap();
+        assert_eq!(st(&p, EXE, "create"), "off");
+        assert_eq!(st(&p, EXE, "compress"), "on");
     }
 
     #[test]
@@ -552,7 +606,7 @@ mod tests {
             fn reg_delete_tree(&mut self, _: &str) -> Result<(), String> { Err("x".into()) }
             fn reg_delete_value(&mut self, _: &str, _: &str) -> Result<(), String> { Err("x".into()) }
             fn sendto_exists(&self, _: &str) -> bool { false }
-            fn sendto_create(&mut self, _: &Path, _: &str) -> Result<(), String> { Err("x".into()) }
+            fn sendto_create(&mut self, _: &Path, _: &str, _: &[&str]) -> Result<(), String> { Err("x".into()) }
             fn sendto_remove(&mut self, _: &str) -> Result<(), String> { Err("x".into()) }
         }
         assert!(status(&No, Path::new(EXE)).iter().all(|s| s.state == "na"));
