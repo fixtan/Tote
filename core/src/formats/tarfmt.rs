@@ -70,7 +70,7 @@ fn tar_entry(index: usize, e: &tar::Entry<'_, impl Read>) -> Entry {
 }
 
 impl Backend for TarBackend {
-    fn list(&self, path: &Path) -> Result<Listing, Error> {
+    fn list(&self, path: &Path, _pw: Option<&str>) -> Result<Listing, Error> {
         match open_content(path, self.gzip)? {
             Content::Tar(r) => {
                 let mut ar = tar::Archive::new(r);
@@ -94,7 +94,7 @@ impl Backend for TarBackend {
         }
     }
 
-    fn walk(&self, path: &Path, _entries: &[Entry], sink: &mut dyn Sink) -> Result<(), Error> {
+    fn walk(&self, path: &Path, _entries: &[Entry], _pw: Option<&str>, sink: &mut dyn Sink) -> Result<(), Error> {
         match open_content(path, self.gzip)? {
             Content::Tar(r) => {
                 let mut ar = tar::Archive::new(r);

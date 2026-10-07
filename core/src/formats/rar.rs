@@ -50,7 +50,7 @@ fn make_entry(index: usize, h: &unrar::FileHeader) -> Entry {
 }
 
 impl Backend for RarBackend {
-    fn list(&self, path: &Path) -> Result<Listing, Error> {
+    fn list(&self, path: &Path, _pw: Option<&str>) -> Result<Listing, Error> {
         let p = path.to_path_buf();
         let it = Archive::new(&p).open_for_listing().map_err(map_err)?;
         let mut entries = Vec::new();
@@ -62,7 +62,7 @@ impl Backend for RarBackend {
         Ok(Listing { entries, comment: String::new(), format: "RAR" })
     }
 
-    fn walk(&self, path: &Path, entries: &[Entry], sink: &mut dyn Sink) -> Result<(), Error> {
+    fn walk(&self, path: &Path, entries: &[Entry], _pw: Option<&str>, sink: &mut dyn Sink) -> Result<(), Error> {
         let p = path.to_path_buf();
         let tmp = scratch_dir("tote-rar").map_err(|e| Error::Archive(e.to_string()))?;
         let result = (|| -> Result<(), Error> {

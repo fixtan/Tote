@@ -105,7 +105,7 @@ fn parse_naive(s: &str) -> Option<(i32, u8, u8, u8, u8, u8)> {
 }
 
 impl Backend for LzhBackend {
-    fn list(&self, path: &Path) -> Result<Listing, Error> {
+    fn list(&self, path: &Path, _pw: Option<&str>) -> Result<Listing, Error> {
         let mut reader = open(path)?;
         let mut entries = Vec::new();
         loop {
@@ -118,7 +118,7 @@ impl Backend for LzhBackend {
         Ok(Listing { entries, comment: String::new(), format: "LZH" })
     }
 
-    fn walk(&self, path: &Path, _entries: &[Entry], sink: &mut dyn Sink) -> Result<(), Error> {
+    fn walk(&self, path: &Path, _entries: &[Entry], _pw: Option<&str>, sink: &mut dyn Sink) -> Result<(), Error> {
         let mut reader = open(path)?;
         let mut i = 0;
         loop {

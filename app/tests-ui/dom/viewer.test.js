@@ -12,22 +12,22 @@ const entries = [
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function boot({ prepareDelay = 0, cfg = {}, extractAll = { dest: 'C:\\x\\test', files: 3, skipped: [] }, ents = entries, format = 'ZIP', added = { files: 2, dirs: 0, replaced: 0, skipped: 0, fellBack: false } } = {}) {
+async function boot({ prepareDelay = 0, cfg = {}, extractAll = { dest: 'C:\\x\\test', files: 3, skipped: [] }, ents = entries, format = 'ZIP', added = { files: 2, dirs: 0, replaced: 0, skipped: 0, fellBack: false }, loadFn = null, extractFn = null } = {}) {
   const calls = [];
   const handlers = {};
   let extra = [];
   const invoke = async (cmd, args) => {
     calls.push([cmd, args]);
-    if (cmd === 'load_archive') return { path: 'C:\\x\\test.zip', name: 'test.zip', info: { entries: [...ents, ...extra], totalSize: 0, totalPacked: 0, comment: '', format } };
+    if (cmd === 'load_archive') { if (loadFn) loadFn(args); return { path: 'C:\\x\\test.zip', name: 'test.zip', info: { entries: [...ents, ...extra], totalSize: 0, totalPacked: 0, comment: '', format } }; }
     if (cmd === 'get_config') return Object.assign({ confirmRisky: true, extractDest: 'besideArchive' }, cfg);
     if (cmd === 'prepare_drag') { await sleep(prepareDelay); return null; }
-    if (cmd === 'extract_all') return extractAll;
+    if (cmd === 'extract_all') return extractFn ? extractFn() : extractAll;
     if (cmd === 'add_files') { extra = [E('added.txt')]; return added; }
     return null;
   };
   const dom = await JSDOM.fromFile(require('node:path').join(__dirname, '../../ui/index.html'), {
     runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true,
-    beforeParse(w) { w.__TAURI__ = { core: { invoke }, event: { listen: async (n, f) => { handlers[n] = f; } } }; },
+    beforeParse(w) { w.HTMLDialogElement.prototype.showModal = function () { this.open = true; }; w.__TAURI__ = { core: { invoke }, event: { listen: async (n, f) => { handlers[n] = f; } } }; },
   });
   await new Promise((r) => dom.window.addEventListener('load', r));
   await sleep(50);
@@ -40,7 +40,15 @@ async function boot({ prepareDelay = 0, cfg = {}, extractAll = { dest: 'C:\\x\\t
   const rowsText = () => [...d.querySelectorAll('#rows tr')].map((tr) => tr.querySelector('.label').textContent);
   const row = (name) => [...d.querySelectorAll('#rows tr')].find((tr) => tr.querySelector('.label').textContent === name);
   const emit = (n, payload) => handlers[n] && handlers[n]({ payload });
-  return { w, d, calls, fire, rowsText, row, emit };
+  // パスワードダイアログに答える（pw が null ならキャンセル）
+  const answerPw = async (pw) => {
+    const dlg = d.getElementById('pwDlg');
+    assert.ok(dlg.open, 'パスワードのダイアログが開く');
+    if (pw !== null) d.getElementById('pwInput').value = pw;
+    dlg.returnValue = pw === null ? 'cancel' : 'ok'; dlg.open = false; dlg.dispatchEvent(new w.Event('close'));
+    await sleep(30);
+  };
+  return { w, d, calls, fire, rowsText, row, emit, answerPw };
 }
 
 (async () => {
@@ -156,7 +164,6 @@ async function boot({ prepareDelay = 0, cfg = {}, extractAll = { dest: 'C:\\x\\t
 
   s = await boot();
   // 12. 暗号化・不正パスは開かない
-  s.row('secret.bin').dispatchEvent(new s.w.MouseEvent('dblclick', { bubbles: true }));
   s.row('..').dispatchEvent(new s.w.MouseEvent('dblclick', { bubbles: true }));
   s.row('evil.txt').dispatchEvent(new s.w.MouseEvent('dblclick', { bubbles: true }));
   await sleep(10);
@@ -164,7 +171,7 @@ async function boot({ prepareDelay = 0, cfg = {}, extractAll = { dest: 'C:\\x\\t
   ok('パスワード付き/不正パスは開かない');
 
   // 13. すべて展開
-  s = await boot();
+  s = await boot({ ents: entries.filter((e) => !e.encrypted) });
   s.d.getElementById('btnExtractAll').click();
   await sleep(30);
   assert.ok(s.calls.some((c) => c[0] === 'extract_all'));
@@ -190,7 +197,7 @@ async function boot({ prepareDelay = 0, cfg = {}, extractAll = { dest: 'C:\\x\\t
   ok('設定で確認OFFなら確認なしで開く');
 
   // 16. 展開先を毎回選ぶ設定でキャンセルしたら、何も言わずに戻る
-  s = await boot({ cfg: { extractDest: 'ask' }, extractAll: null });
+  s = await boot({ cfg: { extractDest: 'ask' }, extractAll: null, ents: entries.filter((e) => !e.encrypted) });
   s.d.getElementById('btnExtractAll').click();
   await sleep(30);
   assert.ok(s.d.getElementById('toast').hidden, 'トーストは出ない');
@@ -250,6 +257,56 @@ async function boot({ prepareDelay = 0, cfg = {}, extractAll = { dest: 'C:\\x\\t
   await sleep(40);
   assert.match(s.d.getElementById('toastMsg').textContent, /1 個を置き換え.*安全な方式/);
   ok('置き換え・安全な方式への切替を通知');
+
+  // 22. パスワード付き: すべて展開 → 入力 → 展開
+  s = await boot();
+  assert.match(s.d.getElementById('warn').textContent, /パスワード付き.*1 個/);
+  assert.ok(s.d.getElementById('btnPw'), '入力ボタンが出る');
+  s.d.getElementById('btnExtractAll').click();
+  await sleep(30);
+  assert.ok(!s.calls.some((c) => c[0] === 'extract_all'), '入力前は展開しない');
+  await s.answerPw('abc');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(s.calls.find((c) => c[0] === 'set_password')[1])), { password: 'abc' });
+  assert.ok(s.calls.some((c) => c[0] === 'extract_all'));
+  assert.ok(!s.d.getElementById('btnPw'), '入力済みならボタンは消える');
+  assert.match(s.d.getElementById('warn').textContent, /入力済み/);
+  s.d.getElementById('btnExtractAll').click();
+  await sleep(30);
+  assert.strictEqual(s.calls.filter((c) => c[0] === 'set_password').length, 1, '覚えているので聞き直さない');
+  ok('パスワード付き: 入力してから展開、覚えておく');
+
+  // 23. 違うパスワード → 聞き直し／キャンセル
+  let tries = 0;
+  s = await boot({ extractFn: () => { if (++tries === 1) throw 'パスワードが違います'; return { dest: 'C:\\x\\test', files: 3, skipped: [] }; } });
+  s.d.getElementById('btnExtractAll').click();
+  await sleep(30);
+  await s.answerPw('bad');
+  assert.ok(s.d.getElementById('pwMsg').classList.contains('bad'), '違いますの表示');
+  assert.match(s.d.getElementById('pwMsg').textContent, /違います/);
+  await s.answerPw('good');
+  assert.match(s.d.getElementById('toastMsg').textContent, /3 個のファイルを展開しました/);
+  s = await boot();
+  s.d.getElementById('btnExtractAll').click();
+  await sleep(30);
+  await s.answerPw(null);
+  assert.ok(!s.calls.some((c) => c[0] === 'extract_all' || c[0] === 'set_password'));
+  ok('違うパスワードは聞き直す／キャンセルなら何もしない');
+
+  // 24. ファイルを開く / 名前まで暗号化された書庫
+  s = await boot();
+  s.row('secret.bin').dispatchEvent(new s.w.MouseEvent('dblclick', { bubbles: true }));
+  await sleep(20);
+  assert.ok(!s.calls.some((c) => c[0] === 'open_entry'));
+  await s.answerPw('pw1');
+  assert.ok(s.calls.some((c) => c[0] === 'open_entry'));
+  let first = true;
+  s = await boot({ loadFn: (a) => { if (!a || a.password == null) { if (first) { first = false; throw 'パスワードが必要です'; } } } });
+  await s.answerPw('hdr');
+  const loads = s.calls.filter((c) => c[0] === 'load_archive');
+  assert.strictEqual(loads.length, 2);
+  assert.strictEqual(loads[1][1].password, 'hdr');
+  assert.ok(s.rowsText().includes('readme.txt'));
+  ok('開くときの確認／名前まで暗号化された書庫は先にパスワード');
 
   console.log(`\nall ${n} passed`);
   process.exit(0);

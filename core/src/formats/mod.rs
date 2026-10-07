@@ -44,8 +44,14 @@ pub(crate) struct Listing {
 }
 
 pub(crate) trait Backend {
-    fn list(&self, path: &Path) -> Result<Listing, Error>;
-    fn walk(&self, path: &Path, entries: &[Entry], sink: &mut dyn Sink) -> Result<(), Error>;
+    /// `pw` はパスワード（要らない形式では無視）。ヘッダーまで暗号化された書庫は、無いか違うとエラー。
+    fn list(&self, path: &Path, pw: Option<&str>) -> Result<Listing, Error>;
+    fn walk(&self, path: &Path, entries: &[Entry], pw: Option<&str>, sink: &mut dyn Sink) -> Result<(), Error>;
+    /// 展開の前に、パスワードが合っているか確かめる（`wanted` は展開する項目。暗号化されたものが無ければ何もしない）。
+    /// 合っていなければ `Error::WrongPassword`。確かめようがない形式は何もしない。
+    fn check_password(&self, _path: &Path, _entries: &[Entry], _wanted: &[usize], _pw: &str) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -31,6 +31,8 @@ fn main() {
             report(shell::install_defaults(&mut shell::System, &exe()), "登録しました。右クリックメニューと「送る」に追加されています。")
         }
         Some("--uninstall") => report(shell::uninstall_all(&mut shell::System), "登録を解除しました。"),
+        // 引数なしの `--open` は、デスクトップのメニューから起動されたとき（ファイル無し）。設定画面を開く
+        Some("--open") if args.len() < 2 => open_settings(),
         Some("--open") => open_viewer(args.get(1)),
         Some("--create") => create_dialog(args.into_iter().skip(1).map(PathBuf::from).collect()),
         Some("--help" | "-h" | "/?") => ui::info(USAGE),

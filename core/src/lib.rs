@@ -30,6 +30,10 @@ pub enum Error {
     Zip(#[from] zip::result::ZipError),
     #[error("{0}")]
     Unsupported(String),
+    #[error("パスワードが必要です")]
+    PasswordRequired,
+    #[error("パスワードが違います")]
+    WrongPassword,
     #[error("書庫を読めません: {0}")]
     Archive(String),
 }

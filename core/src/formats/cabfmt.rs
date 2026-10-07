@@ -18,7 +18,7 @@ fn open(path: &Path) -> Result<cab::Cabinet<File>, Error> {
 }
 
 impl Backend for CabBackend {
-    fn list(&self, path: &Path) -> Result<Listing, Error> {
+    fn list(&self, path: &Path, _pw: Option<&str>) -> Result<Listing, Error> {
         let cabinet = open(path)?;
         let mut entries = Vec::new();
         for folder in cabinet.folder_entries() {
@@ -39,7 +39,7 @@ impl Backend for CabBackend {
         Ok(Listing { entries, comment: String::new(), format: "CAB" })
     }
 
-    fn walk(&self, path: &Path, entries: &[Entry], sink: &mut dyn Sink) -> Result<(), Error> {
+    fn walk(&self, path: &Path, entries: &[Entry], _pw: Option<&str>, sink: &mut dyn Sink) -> Result<(), Error> {
         let mut cabinet = open(path)?;
         // 名前は書庫内の元の表記（`\` 区切り）で読み出す
         let names: Vec<String> =

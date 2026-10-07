@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name={{name}}
+Comment=書庫の作成・閲覧ツール
+Exec={{exec}} --open %f
+Icon={{icon}}
+Terminal=false
+Categories=Utility;Archiving;Compression;
+MimeType=application/zip;application/x-7z-compressed;application/vnd.rar;application/x-rar;application/gzip;application/x-gzip;application/x-tar;application/x-compressed-tar;application/vnd.ms-cab-compressed;application/x-lha;application/x-lzh-compressed;application/x-iso9660-image;application/x-cd-image;

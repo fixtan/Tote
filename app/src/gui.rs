@@ -36,6 +36,7 @@ pub fn run(mode: Mode) {
         .manage(creator::Creator::new(inputs))
         .invoke_handler(tauri::generate_handler![
             viewer::load_archive,
+            viewer::set_password,
             viewer::extract_all,
             viewer::extract_selected,
             viewer::open_entry,

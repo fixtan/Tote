@@ -343,13 +343,13 @@ impl Read for ExtentReader<'_> {
 }
 
 impl Backend for IsoBackend {
-    fn list(&self, path: &Path) -> Result<Listing, Error> {
+    fn list(&self, path: &Path, _pw: Option<&str>) -> Result<Listing, Error> {
         let s = scan(path)?;
         let comment = if s.label.is_empty() { String::new() } else { format!("ボリューム名: {}", s.label) };
         Ok(Listing { entries: s.entries, comment, format: "ISO" })
     }
 
-    fn walk(&self, path: &Path, entries: &[Entry], sink: &mut dyn Sink) -> Result<(), Error> {
+    fn walk(&self, path: &Path, entries: &[Entry], _pw: Option<&str>, sink: &mut dyn Sink) -> Result<(), Error> {
         let s = scan(path)?;
         let mut f = File::open(path).map_err(io_err(path))?;
         let file_len = f.metadata().map_err(io_err(path))?.len();

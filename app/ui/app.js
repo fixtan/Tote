@@ -13,6 +13,7 @@
     toast: $('toast'), toastMsg: $('toastMsg'), toastAct: $('toastAct'),
     drop: $('drop'), dropBox: $('dropBox'),
     dlg: $('dlg'), dlgMsg: $('dlgMsg'), dlgOk: $('dlgOk'),
+    pwDlg: $('pwDlg'), pwMsg: $('pwMsg'), pwInput: $('pwInput'), pwShow: $('pwShow'), pwOk: $('pwOk'),
   };
 
   let archive = null;      // { path, name, info }
@@ -26,6 +27,7 @@
   let shown = [];          // 画面に出ているノード（並び順）
   let busy = false;
   let cfg = { confirmRisky: true };
+  let pwKnown = false;     // 展開用のパスワードを入力済みか
 
   // ------------------------------------------------------------ ツリー操作
 
@@ -88,7 +90,7 @@
     name.appendChild(el('span', 'ico', n.isDir ? '📁' : '📄'));
     name.appendChild(el('span', 'label', n.name));
     if (e && e.risky) { const b = el('span', 'badge', '⚠'); b.title = '実行形式・スクリプトです。開く前に内容を確認してください'; name.appendChild(b); }
-    if (e && e.encrypted && !n.isDir) { const b = el('span', 'badge', '🔒'); b.title = 'パスワード付き（展開は未対応です）'; name.appendChild(b); }
+    if (e && e.encrypted && !n.isDir) { const b = el('span', 'badge', '🔒'); b.title = 'パスワード付き'; name.appendChild(b); }
     if (e && !e.safe) { const b = el('span', 'badge', '✖'); b.title = '不正なパスのため展開されません'; name.appendChild(b); }
     name.title = n.name;
     tr.appendChild(name);
@@ -156,10 +158,20 @@
     const msgs = [];
     if (stats.risky) msgs.push(`⚠ 実行形式・スクリプトが ${stats.risky} 個含まれています。開く前に内容を確認してください。`);
     if (stats.unsafe) msgs.push(`✖ 不正なパス（..を含む）の項目が ${stats.unsafe} 個あります。これらは展開されません。`);
-    if (stats.encrypted) msgs.push(`🔒 パスワード付きの項目が ${stats.encrypted} 個あります（展開は未対応です）。`);
-    if (archive.info.comment) msgs.push(`コメント: ${archive.info.comment}`);
-    els.warn.replaceChildren(...msgs.map((m) => el('div', '', m)));
-    els.warn.hidden = msgs.length === 0;
+    const nodes = msgs.map((m) => el('div', '', m));
+    if (stats.encrypted) {
+      const row = el('div', '', `🔒 パスワード付きの項目が ${stats.encrypted} 個あります${pwKnown ? '（パスワード入力済み）' : '。'}`);
+      if (!pwKnown) {
+        const b = el('button', 'inline', 'パスワードを入力…');
+        b.id = 'btnPw';
+        b.addEventListener('click', () => { promptPassword(false); });
+        row.appendChild(b);
+      }
+      nodes.push(row);
+    }
+    if (archive.info.comment) nodes.push(el('div', '', `コメント: ${archive.info.comment}`));
+    els.warn.replaceChildren(...nodes);
+    els.warn.hidden = nodes.length === 0;
   }
 
   // ------------------------------------------------------------ 通知とダイアログ
@@ -192,12 +204,63 @@
     });
   }
 
+  // ------------------------------------------------------------ パスワード
+
+  const isPwErr = (err) => /パスワードが(必要|違)/.test(String(err));
+
+  /** パスワードの入力ダイアログ。キャンセルなら null */
+  function askPassword(wrong) {
+    return new Promise((resolve) => {
+      els.pwMsg.textContent = wrong ? 'パスワードが違います。もう一度入力してください。' : 'この書庫はパスワードで保護されています。';
+      els.pwMsg.classList.toggle('bad', !!wrong);
+      els.pwInput.value = '';
+      els.pwInput.type = els.pwShow.checked ? 'text' : 'password';
+      els.pwDlg.addEventListener('close', () => resolve(els.pwDlg.returnValue === 'ok' ? els.pwInput.value : null), { once: true });
+      els.pwDlg.returnValue = 'cancel';
+      els.pwDlg.showModal();
+      els.pwInput.focus();
+    });
+  }
+  els.pwShow.addEventListener('change', () => { els.pwInput.type = els.pwShow.checked ? 'text' : 'password'; });
+  els.pwInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); els.pwOk.click(); } });
+
+  /** 入力して覚える。キャンセル・空なら false */
+  async function promptPassword(wrong) {
+    const pw = await askPassword(wrong);
+    if (!pw) return false;
+    await invoke('set_password', { password: pw });
+    pwKnown = true;
+    renderWarnings();
+    return true;
+  }
+
+  /** `paths`（空なら全部）の範囲にパスワード付きの項目があるか */
+  function encryptedIn(paths) {
+    const list = archive.info.entries.filter((e) => e.encrypted && !e.isDir);
+    if (!paths.length) return list.length > 0;
+    return list.some((e) => paths.some((p) => e.path === p || e.path.startsWith(p + '/')));
+  }
+
+  /** 必要ならパスワードを聞いてから fn を実行する。違っていたら聞き直して再実行。キャンセルなら null */
+  async function withPassword(paths, fn) {
+    const need = encryptedIn(paths);
+    if (need && !pwKnown && !(await promptPassword(false))) return null;
+    for (;;) {
+      try { return await fn(); }
+      catch (err) {
+        if (!need || !isPwErr(err)) throw err;
+        pwKnown = false;
+        renderWarnings();
+        if (!(await promptPassword(true))) return null;
+      }
+    }
+  }
+
   // ------------------------------------------------------------ 操作
 
   async function openNode(n) {
     if (n.isDir) { cd(n.path); return; }
     const e = n.entry;
-    if (e && e.encrypted) { toast('パスワード付きのファイルは未対応です', { error: true }); return; }
     if (e && !e.safe) { toast('不正なパスのため開けません', { error: true }); return; }
     if (e && e.risky && cfg.confirmRisky) {
       const ok = await confirmDialog(
@@ -206,7 +269,8 @@
     }
     try {
       toast('開いています…', { sticky: true });
-      await invoke('open_entry', { path: n.path });
+      const r = await withPassword([n.path], () => invoke('open_entry', { path: n.path }));
+      if (r === null) { hideToast(); return; }
       hideToast();
     } catch (err) { toast(String(err), { error: true }); }
   }
@@ -229,8 +293,10 @@
 
   function extractAll() {
     return withBusy(async () => {
-      if (cfg.extractDest !== 'ask') toast('展開中…', { sticky: true });
-      const done = await invoke('extract_all');
+      const done = await withPassword([], async () => {
+        if (cfg.extractDest !== 'ask') toast('展開中…', { sticky: true });
+        return invoke('extract_all');
+      });
       if (!done) { hideToast(); return; } // 展開先の選択がキャンセルされた
       reportDone(done);
     });
@@ -239,7 +305,7 @@
   function extractSelected() {
     if (selected.size === 0) { toast('展開する項目を選択してください'); return; }
     return withBusy(async () => {
-      const done = await invoke('extract_selected', { paths: [...selected] });
+      const done = await withPassword([...selected], () => invoke('extract_selected', { paths: [...selected] }));
       if (!done) return; // 展開先の選択がキャンセルされた
       reportDone(done);
     });
@@ -304,12 +370,19 @@
   async function beginDrag() {
     const state = press;
     const paths = [...selected];
+    if (encryptedIn(paths) && !pwKnown) {
+      // マウスを押している最中にダイアログは出せない。先に入力してもらう
+      press = null;
+      toast('パスワード付きの項目です。先に上の「パスワードを入力…」で入力してください', { error: true });
+      return;
+    }
     const timer = setTimeout(() => toast('展開中…', { sticky: true }), 300);
     try {
       await invoke('prepare_drag', { paths });
     } catch (err) {
       clearTimeout(timer);
       press = null;
+      if (isPwErr(err)) pwKnown = false;
       toast(String(err), { error: true });
       return;
     }
@@ -425,11 +498,23 @@
 
   async function init() {
     try { cfg = Object.assign(cfg, await invoke('get_config')); } catch (_) { /* 設定が読めなくても既定値で動く */ }
-    try {
-      archive = await invoke('load_archive');
-    } catch (err) {
-      document.body.replaceChildren(el('div', 'warn', `開けませんでした: ${String(err)}`));
-      return;
+    let pw = null, wrong = false;
+    for (;;) {
+      try {
+        archive = await invoke('load_archive', { password: pw });
+        pwKnown = pw !== null;
+        break;
+      } catch (err) {
+        if (isPwErr(err)) {
+          // 名前まで暗号化された書庫は、中身を見るのにもパスワードが要る
+          pw = await askPassword(wrong);
+          wrong = true;
+          if (pw) continue;
+          err = 'パスワードが必要です';
+        }
+        document.body.replaceChildren(el('div', 'warn', `開けませんでした: ${String(err)}`));
+        return;
+      }
     }
     root = T.buildTree(archive.info.entries);
     stats = T.stats(archive.info.entries, root);

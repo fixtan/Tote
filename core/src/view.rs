@@ -228,8 +228,14 @@ pub(crate) fn set_stamp(e: &mut Entry, stamp: (Option<String>, Option<SystemTime
 
 /// 書庫の中身を一覧する（展開はしない）。形式は中身（先頭バイト）で判定し、だめなら拡張子で判定する。
 pub fn list(path: &Path) -> Result<ArchiveInfo, Error> {
+    list_with(path, None)
+}
+
+/// パスワード付きで一覧する。ヘッダーまで暗号化された 7z は、パスワードが無い/違うと
+/// `Error::PasswordRequired` / `Error::WrongPassword`。
+pub fn list_with(path: &Path, password: Option<&str>) -> Result<ArchiveInfo, Error> {
     let kind = formats::detect(path)?;
-    let listing = formats::backend(kind).list(path)?;
+    let listing = formats::backend(kind).list(path, password)?;
     let entries = listing.entries;
     let total_size = entries.iter().map(|e| e.size).sum();
     let mut total_packed: u64 = entries.iter().map(|e| e.packed).sum();
@@ -332,10 +338,20 @@ impl Sink for Writer<'_> {
 /// `selection` の項目（ファイルまたはフォルダ。フォルダは中身ごと）を `dest` 直下に展開する。
 /// `selection` が空なら全部。書庫内の階層は、選択した項目の位置から下だけが残る。
 pub fn extract(archive_path: &Path, selection: &[String], dest: &Path) -> Result<ExtractReport, Error> {
+    extract_with(archive_path, selection, dest, None)
+}
+
+/// パスワード付きの展開。パスワード付きの項目があるのにパスワードが無ければ、その項目はスキップ。
+/// あるのに合わなければ、何も書き出す前に `Error::WrongPassword`（入れ直して再実行できる）。
+pub fn extract_with(
+    archive_path: &Path,
+    selection: &[String],
+    dest: &Path,
+    password: Option<&str>,
+) -> Result<ExtractReport, Error> {
     let kind = formats::detect(archive_path)?;
     let backend = formats::backend(kind);
-    let entries = backend.list(archive_path)?.entries;
-    fs::create_dir_all(dest).map_err(io_err(dest))?;
+    let entries = backend.list(archive_path, password)?.entries;
 
     let sel: Vec<String> = selection.iter().map(|s| normalize(s)).filter(|s| !s.is_empty()).collect();
 
@@ -377,7 +393,7 @@ pub fn extract(archive_path: &Path, selection: &[String], dest: &Path) -> Result
             skip(&mut report, "リンクなどの特殊ファイル");
             continue;
         }
-        if e.encrypted && !e.is_dir {
+        if e.encrypted && !e.is_dir && password.is_none() {
             skip(&mut report, "パスワード付き（未対応）");
             continue;
         }
@@ -419,6 +435,13 @@ pub fn extract(archive_path: &Path, selection: &[String], dest: &Path) -> Result
         targets.insert(e.index, Target { path: target, mtime: e.mtime });
     }
 
+    if let Some(pw) = password {
+        let wanted: Vec<usize> = targets.keys().copied().filter(|i| entries[*i].encrypted).collect();
+        if !wanted.is_empty() {
+            backend.check_password(archive_path, &entries, &wanted, pw)?;
+        }
+    }
+    fs::create_dir_all(dest).map_err(io_err(dest))?;
     for d in &dirs {
         fs::create_dir_all(d).map_err(io_err(d))?;
     }
@@ -428,7 +451,7 @@ pub fn extract(archive_path: &Path, selection: &[String], dest: &Path) -> Result
 
     // ---- 書き出し
     let mut writer = Writer { entries: &entries, targets, done: HashSet::new(), report: &mut report, fatal: None };
-    let walked = backend.walk(archive_path, &entries, &mut writer);
+    let walked = backend.walk(archive_path, &entries, password, &mut writer);
     if let Some(e) = writer.fatal.take() {
         return Err(e);
     }

@@ -56,6 +56,18 @@
     </form>
   </dialog>
 
+  <dialog id="pwDlg">
+    <form method="dialog">
+      <p id="pwMsg"></p>
+      <input id="pwInput" type="password" autocomplete="off" spellcheck="false" aria-label="パスワード">
+      <label class="radio"><input type="checkbox" id="pwShow"> パスワードを表示する</label>
+      <div class="dlg-row">
+        <button value="cancel">キャンセル</button>
+        <button value="ok" id="pwOk" class="primary">OK</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="tree.js"></script>
   <script src="app.js"></script>
 </body>

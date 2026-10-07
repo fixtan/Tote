@@ -20,11 +20,17 @@ pub struct Viewer {
     zip: PathBuf,
     /// ドラッグ用に展開済みの項目（選択パスのキー → 展開された最上位項目）
     drag_cache: Mutex<HashMap<String, Vec<PathBuf>>>,
+    /// 画面で入力された展開用のパスワード（メモリ上だけ。書庫ごとに窓が別なのでこの窓の書庫だけに使う）
+    password: Mutex<Option<String>>,
 }
 
 impl Viewer {
+    fn password(&self) -> Option<String> {
+        self.password.lock().ok().and_then(|p| p.clone())
+    }
+
     pub fn new(zip: PathBuf) -> Self {
-        Viewer { zip, drag_cache: Mutex::new(HashMap::new()) }
+        Viewer { zip, drag_cache: Mutex::new(HashMap::new()), password: Mutex::new(None) }
     }
 }
 
@@ -91,9 +97,9 @@ fn no_result_reason(skipped: &[Skipped]) -> String {
     }
 }
 
-async fn run_extract(zip: PathBuf, selection: Vec<String>, dest: PathBuf) -> Result<Done, String> {
+async fn run_extract(zip: PathBuf, selection: Vec<String>, dest: PathBuf, pw: Option<String>) -> Result<Done, String> {
     let d = dest.clone();
-    let report = tauri::async_runtime::spawn_blocking(move || view::extract(&zip, &selection, &d))
+    let report = tauri::async_runtime::spawn_blocking(move || view::extract_with(&zip, &selection, &d, pw.as_deref()))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
@@ -102,14 +108,31 @@ async fn run_extract(zip: PathBuf, selection: Vec<String>, dest: PathBuf) -> Res
 
 // ---------------------------------------------------------------- コマンド
 
+fn set_pw(state: &Viewer, password: Option<String>) -> Result<(), String> {
+    *state.password.lock().map_err(|e| e.to_string())? = password;
+    // 前のパスワードで展開したドラッグ用の中身は使わない
+    state.drag_cache.lock().map_err(|e| e.to_string())?.clear();
+    Ok(())
+}
+
+/// 展開に使うパスワードを覚える（検証は展開のときに行われ、違えば「パスワードが違います」で返る）。
 #[tauri::command]
-pub async fn load_archive(state: State<'_, Viewer>) -> Result<Loaded, String> {
+pub fn set_password(state: State<'_, Viewer>, password: String) -> Result<(), String> {
+    set_pw(&state, Some(password).filter(|p| !p.is_empty()))
+}
+
+#[tauri::command]
+pub async fn load_archive(state: State<'_, Viewer>, password: Option<String>) -> Result<Loaded, String> {
     let zip = state.zip.clone();
     let z = zip.clone();
-    let info = tauri::async_runtime::spawn_blocking(move || view::list(&z))
+    let pw = password.clone().or_else(|| state.password());
+    let info = tauri::async_runtime::spawn_blocking(move || view::list_with(&z, pw.as_deref()))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
+    if password.is_some() {
+        set_pw(&state, password)?;
+    }
     Ok(Loaded { name: file_name(&zip), path: zip.display().to_string(), info })
 }
 
@@ -138,7 +161,7 @@ pub async fn extract_all(app: tauri::AppHandle, state: State<'_, Viewer>) -> Res
     } else {
         default_dest(&zip)
     };
-    run_extract(zip, Vec::new(), dest).await.map(Some)
+    run_extract(zip, Vec::new(), dest, state.password()).await.map(Some)
 }
 
 /// 展開先をフォルダ選択ダイアログで決めて、選択した項目を展開する。キャンセルなら None。
@@ -149,7 +172,7 @@ pub async fn extract_selected(
     paths: Vec<String>,
 ) -> Result<Option<Done>, String> {
     let Some(dest) = pick_dest(app).await? else { return Ok(None) };
-    run_extract(state.zip.clone(), paths, dest).await.map(Some)
+    run_extract(state.zip.clone(), paths, dest, state.password()).await.map(Some)
 }
 
 #[derive(Serialize)]
@@ -198,9 +221,10 @@ pub async fn add_files(state: State<'_, Viewer>, paths: Vec<String>, dest: Strin
 #[tauri::command]
 pub async fn open_entry(state: State<'_, Viewer>, path: String) -> Result<(), String> {
     let zip = state.zip.clone();
+    let pw = state.password();
     let opened = tauri::async_runtime::spawn_blocking(move || -> Result<PathBuf, String> {
         let dir = view::scratch_dir(SCRATCH_OPEN).map_err(|e| e.to_string())?;
-        let r = view::extract(&zip, &[path], &dir).map_err(|e| e.to_string())?;
+        let r = view::extract_with(&zip, &[path], &dir, pw.as_deref()).map_err(|e| e.to_string())?;
         r.items.into_iter().next().ok_or_else(|| no_result_reason(&r.skipped))
     })
     .await
@@ -221,9 +245,10 @@ pub async fn prepare_drag(state: State<'_, Viewer>, paths: Vec<String>) -> Resul
         return Ok(());
     }
     let zip = state.zip.clone();
+    let pw = state.password();
     let items = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<PathBuf>, String> {
         let dir = view::scratch_dir(SCRATCH_DRAG).map_err(|e| e.to_string())?;
-        let r = view::extract(&zip, &paths, &dir).map_err(|e| e.to_string())?;
+        let r = view::extract_with(&zip, &paths, &dir, pw.as_deref()).map_err(|e| e.to_string())?;
         if r.items.is_empty() { Err(no_result_reason(&r.skipped)) } else { Ok(r.items) }
     })
     .await

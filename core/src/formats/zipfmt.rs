@@ -18,7 +18,7 @@ fn open(path: &Path) -> Result<ZipArchive<BufReader<File>>, Error> {
 }
 
 impl Backend for ZipBackend {
-    fn list(&self, path: &Path) -> Result<Listing, Error> {
+    fn list(&self, path: &Path, _pw: Option<&str>) -> Result<Listing, Error> {
         let mut ar = open(path)?;
         let mut entries = Vec::with_capacity(ar.len());
         for i in 0..ar.len() {
@@ -43,13 +43,17 @@ impl Backend for ZipBackend {
         Ok(Listing { entries, comment, format: "ZIP" })
     }
 
-    fn walk(&self, path: &Path, entries: &[Entry], sink: &mut dyn Sink) -> Result<(), Error> {
+    fn walk(&self, path: &Path, entries: &[Entry], pw: Option<&str>, sink: &mut dyn Sink) -> Result<(), Error> {
         let mut ar = open(path)?;
         for e in entries {
             if !sink.wants(e.index) {
                 continue;
             }
-            match ar.by_index(e.index) {
+            let opened = match (e.encrypted, pw) {
+                (true, Some(pw)) => ar.by_index_decrypt(e.index, pw.as_bytes()),
+                _ => ar.by_index(e.index),
+            };
+            match opened {
                 Ok(mut f) => sink.file(e.index, &mut f),
                 Err(err) => sink.fail(e.index, format!("読み出せません: {err}")),
             }
@@ -58,5 +62,16 @@ impl Backend for ZipBackend {
             }
         }
         Ok(())
+    }
+
+    fn check_password(&self, path: &Path, _entries: &[Entry], wanted: &[usize], pw: &str) -> Result<(), Error> {
+        let mut ar = open(path)?;
+        // 暗号化された項目ごとに鍵の検査値があるので、1つ開けば合否が分かる（全部同じパスワードで作られる前提）
+        let Some(&i) = wanted.first() else { return Ok(()) };
+        match ar.by_index_decrypt(i, pw.as_bytes()) {
+            Ok(_) => Ok(()),
+            Err(zip::result::ZipError::InvalidPassword) => Err(Error::WrongPassword),
+            Err(e) => Err(e.into()),
+        }
     }
 }

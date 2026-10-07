@@ -238,3 +238,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .msg { margin: 0 0 12px; padding: 8px 12px; border-radius: 6px; line-height: 1.6; white-space: pre-wrap; user-select: text; }
 .msg.error { background: #3a2121; color: #ffc4c4; border: 1px solid #7a3a3a; }
 .btnrow.end { justify-content: flex-end; }
+
+/* パスワード入力（ビューア） */
+#pwInput { width: 100%; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; margin: 0 0 8px; user-select: text; }
+#pwInput:focus { outline: 1px solid var(--accent); }
+#pwMsg.bad { color: var(--danger); }
+button.inline { margin-left: 10px; padding: 1px 10px; }
