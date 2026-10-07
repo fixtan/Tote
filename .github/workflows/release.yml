@@ -97,4 +97,4 @@ jobs:
           draft: true
           name: 'Tote ${{ github.ref_name }}'
           body: 'Windows: zip を展開して tote.exe を実行（設定画面から右クリック登録）。Linux: .deb / .rpm / .AppImage。使い方は README を参照。'
-          files: dist/*
+          files: dist/**/*

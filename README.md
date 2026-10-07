@@ -74,4 +74,5 @@ Releases の `.deb` / `.rpm` / `.AppImage` を入れると、アプリメニュ�
 ## 今後
 RAR のパスワード、Linux 版（`.deb/.AppImage`）、右クリックメニューの整理、UDF の ISO
 
-ライセンス表記は NOTICE.md を参照（RAR展開に UnRAR のソースを使用）。
+## ライセンス
+MIT License（[LICENSE](LICENSE)）。使っているライブラリの表記は [NOTICE.md](NOTICE.md) を参照（RAR展開に UnRAR のソースを使用）。
