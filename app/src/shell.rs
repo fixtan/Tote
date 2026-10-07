@@ -25,6 +25,7 @@ pub const OPEN_GROUPS: &[(&str, &str, &[&str])] = &[
     ("targz", "tar.gz / gz", &["gz", "tgz", "tar"]),
     ("cab", "CAB", &["cab"]),
     ("lzh", "LZH / LHA", &["lzh", "lha"]),
+    ("iso", "ISO", &["iso"]),
 ];
 
 const MENU_LABEL: &str = "ToteでZIPに圧縮";
@@ -101,7 +102,11 @@ pub fn item_defs() -> Vec<(String, String, String)> {
     ];
     for (id, label, exts) in OPEN_GROUPS {
         let list = exts.iter().map(|e| format!(".{e}")).collect::<Vec<_>>().join(" ");
-        let extra = if *id == "rar" { "。RARは展開のみ（作成はできません）" } else { "" };
+        let extra = match *id {
+            "rar" => "。RARは展開のみ（作成はできません）",
+            "iso" => "。「既定のアプリ」にすると、ダブルクリックでのマウントができなくなります（右クリックの候補に足すだけなら影響なし）",
+            _ => "",
+        };
         v.push((
             format!("open:{id}"),
             format!("{label} を開く"),

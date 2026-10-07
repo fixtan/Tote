@@ -326,11 +326,76 @@ fn unknown_files_and_iso_report_clear_errors() {
     fs::write(&p, b"this is not an archive").unwrap();
     assert!(view::list(&p).unwrap_err().to_string().contains("対応していない"));
 
+    // ISO の記述子はあるが中身が空・壊れているイメージは、パニックせず分かるエラーにする
     let iso = t.path().join("disc.iso");
     let mut b = vec![0u8; 0x8100];
     b[0x8001..0x8006].copy_from_slice(b"CD001");
     fs::write(&iso, b).unwrap();
     assert!(view::list(&iso).unwrap_err().to_string().contains("ISO"));
+}
+
+// ---------------------------------------------------------------- ISO
+
+const BIG: usize = 4999 + 1; // 2048バイトのセクタを3つまたぐ
+
+#[test]
+fn iso_joliet_lists_japanese_names_and_extracts() {
+    let iso = fixture("joliet.iso");
+    let info = view::list(&iso).unwrap();
+    assert_eq!(info.format, "ISO");
+    assert!(info.comment.contains("TOTE_TEST"));
+    let n = names(&info);
+    for want in ["readme.txt", "empty.txt", "docs/big_file_name_longer_than_8dot3.txt", "てすとフォルダー/あいうえお_.txt", "てすとフォルダー/sub/deep.txt"] {
+        assert!(n.contains(&want.to_string()), "{want} が無い: {n:?}");
+    }
+    let e = info.entries.iter().find(|e| e.path == "readme.txt").unwrap();
+    assert_eq!(e.size, 10);
+    assert!(e.modified.is_some());
+
+    let t = tempfile::tempdir().unwrap();
+    let r = extract(&iso, &[], t.path());
+    assert!(r.skipped.iter().all(|s| s.path == "link.txt"), "{:?}", r.skipped); // リンクだけは展開しない
+    assert_eq!(read(t.path().join("readme.txt")), b"hello iso\n");
+    assert_eq!(read(t.path().join("empty.txt")), b"");
+    assert_eq!(read(t.path().join("てすとフォルダー/あいうえお_.txt")), b"nihongo\n");
+    let big = read(t.path().join("docs/big_file_name_longer_than_8dot3.txt"));
+    assert_eq!(big.len(), BIG);
+    assert!(big[..BIG - 1].iter().all(|&b| b == b'x') && big[BIG - 1] == b'\n');
+}
+
+#[test]
+fn iso_rock_ridge_only_uses_long_names_and_flags_symlinks() {
+    let iso = fixture("rockridge.iso");
+    let info = view::list(&iso).unwrap();
+    let n = names(&info);
+    assert!(n.contains(&"docs/big_file_name_longer_than_8dot3.txt".to_string()), "{n:?}");
+    assert!(n.contains(&"てすとフォルダー/sub/deep.txt".to_string()), "{n:?}");
+    assert!(n.contains(&"てすとフォルダー/あいうえお🤯.txt".to_string()), "Rock Ridge(UTF-8)なら絵文字も残る: {n:?}");
+    assert!(info.entries.iter().find(|e| e.path == "link.txt").unwrap().symlink);
+    let t = tempfile::tempdir().unwrap();
+    extract(&iso, &["docs"], t.path());
+    assert_eq!(read(t.path().join("docs/big_file_name_longer_than_8dot3.txt")).len(), BIG);
+}
+
+#[test]
+fn iso_plain_9660_strips_version_suffix() {
+    let iso = fixture("plain.iso");
+    let info = view::list(&iso).unwrap();
+    let mut n = names(&info);
+    n.sort();
+    assert_eq!(n, ["DIR", "DIR/INNER.TXT", "HELLO.TXT"]);
+    let t = tempfile::tempdir().unwrap();
+    extract(&iso, &["DIR/INNER.TXT"], t.path());
+    assert_eq!(read(t.path().join("INNER.TXT")), b"in dir\n");
+}
+
+#[test]
+fn iso_truncated_image_is_an_error_not_a_panic() {
+    let t = tempfile::tempdir().unwrap();
+    let cut = t.path().join("cut.iso");
+    let full = read(fixture("joliet.iso"));
+    fs::write(&cut, &full[..0x8000 + 4096]).unwrap(); // 記述子の直後で切れている
+    assert!(view::list(&cut).is_err());
 }
 
 // ---------------------------------------------------------------- 圧縮オプション

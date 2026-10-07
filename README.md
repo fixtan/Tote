@@ -8,6 +8,7 @@
 | v0.2.0 | ZIPビューア（展開前に中身を閲覧、ドラッグで個別展開） |
 | v0.3.0 | 設定画面、閲覧・展開の対応形式を拡大（7z / RAR / tar.gz・gz / CAB / LZH）、圧縮レベルの選択 |
 | v0.4.0 | ビューアへのドロップで ZIP にファイルを追加（書き込み方は設定で選択） |
+| v0.5.0 | ISO（ISO 9660 / Joliet / Rock Ridge）の閲覧と展開 |
 
 ## ビルド (Windows)
     cargo build --release
@@ -45,7 +46,7 @@
 | tar.gz / tgz / tar / gz | ○ | – | 一覧に全体の走査が必要（大きいと時間がかかる） |
 | CAB | ○ | – | 日本語名(Shift_JIS)のCABは文字化けすることがある。分割CABは未対応 |
 | LZH / LHA | ○ | – | 日本語名(Shift_JIS)対応 |
-| ISO | – | – | 未対応（`core/src/formats/iso.rs` に枠だけ用意。エクスプローラーのマウントで代用） |
+| ISO | ○ | – | ISO 9660 / Joliet / Rock Ridge（普通のデータCD・DVD）。UDF（大きいDVD・Blu-ray）・マルチセッション・2352バイト/セクタ形式は未対応。Joliet は UCS-2 なので絵文字などは作成時に `_` になっている。書庫の名前はボリューム名がコメントに出る |
 
 形式は拡張子ではなく中身（先頭バイト）で判定する。新しい形式の足し方は `core/src/formats/mod.rs` の先頭に書いてある。
 
@@ -60,6 +61,6 @@
 - app/   exe（引数処理、複数選択の集約、設定、レジストリ登録）、`gui.rs`/`viewer.rs`/`settings.rs`（Tauri）、`ui/`（画面）
 
 ## 今後
-次: ISO、パスワード付き、Linux 対応（`.deb/.AppImage`）
+必要になったら: パスワード付き（まず ZIP から）、UDF の ISO、Linux 版（`.deb/.AppImage`）
 
 ライセンス表記は NOTICE.md を参照（RAR展開に UnRAR のソースを使用）。

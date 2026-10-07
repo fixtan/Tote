@@ -58,7 +58,7 @@ pub enum Kind {
     Tar,
     Cab,
     Lzh,
-    /// 未対応（枠だけ用意）
+    /// ISO 9660 / Joliet / Rock Ridge（UDF は未対応）
     Iso,
 }
 

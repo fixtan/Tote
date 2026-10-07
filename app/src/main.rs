@@ -18,7 +18,7 @@ use std::time::Instant;
 
 
 const USAGE: &str = "Tote — 書庫の作成・閲覧ツール\n\n\
-使い方:\n  tote                         設定画面を開く（右クリック登録・圧縮設定など）\n  tote <ファイル/フォルダ>...   ZIPを作成\n  tote --open <書庫>           書庫の中身を開く（zip 7z rar gz tgz tar cab lzh）\n  tote --install               右クリック・「送る」・ZIPの関連付け候補を登録\n  tote --uninstall             登録をすべて解除";
+使い方:\n  tote                         設定画面を開く（右クリック登録・圧縮設定など）\n  tote <ファイル/フォルダ>...   ZIPを作成\n  tote --open <書庫>           書庫の中身を開く（zip 7z rar gz tgz tar cab lzh iso）\n  tote --install               右クリック・「送る」・ZIPの関連付け候補を登録\n  tote --uninstall             登録をすべて解除";
 
 fn main() {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
