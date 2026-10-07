@@ -3,6 +3,7 @@
 use std::path::Path;
 
 #[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "viewer", allow(dead_code))]
 pub enum Choice {
     Yes,
     No,
@@ -34,6 +35,7 @@ mod imp {
         msgbox("Tote", text, MB_OK | MB_ICONINFORMATION);
     }
 
+    #[cfg_attr(feature = "viewer", allow(dead_code))]
     pub fn ask(text: &str) -> Choice {
         match msgbox("Tote", text, MB_YESNOCANCEL | MB_ICONQUESTION) {
             x if x == IDYES => Choice::Yes,
@@ -61,6 +63,7 @@ mod imp {
     pub fn info(text: &str) {
         println!("{text}");
     }
+    #[cfg_attr(feature = "viewer", allow(dead_code))]
     pub fn ask(text: &str) -> Choice {
         println!("{text}");
         Choice::Cancel
@@ -76,6 +79,7 @@ pub fn error(text: &str) {
 pub fn info(text: &str) {
     imp::info(text)
 }
+#[cfg_attr(feature = "viewer", allow(dead_code))]
 pub fn ask(text: &str) -> Choice {
     imp::ask(text)
 }

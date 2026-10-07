@@ -1,4 +1,4 @@
-//! tote-core: ZIP作成のコアロジック。
+//! tote-core: ZIP作成と、各種書庫の閲覧・展開のコアロジック。
 //!
 //! 方針:
 //! - 入力が「フォルダ1つだけ」のときは、その中身をZIPのルート直下に入れる
@@ -28,24 +28,83 @@ pub enum Error {
     Io { path: PathBuf, source: io::Error },
     #[error("ZIPエラー: {0}")]
     Zip(#[from] zip::result::ZipError),
+    #[error("{0}")]
+    Unsupported(String),
+    #[error("書庫を読めません: {0}")]
+    Archive(String),
 }
 
 pub(crate) fn io_err(path: &Path) -> impl FnOnce(io::Error) -> Error + '_ {
     move |source| Error::Io { path: path.to_path_buf(), source }
 }
 
-#[derive(Debug, Clone)]
-pub struct Options {
-    /// 出力先を明示する場合。Noneなら入力から自動決定。
-    pub output: Option<PathBuf>,
-    /// Deflateの圧縮レベル（0-9）。Noneで既定。
+/// 作成できる書庫の形式。形式を足すときは、ここと `create` の分岐、`presets` を増やす。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CompressFormat {
+    #[default]
+    Zip,
+}
+
+/// 圧縮レベルの選択肢（設定画面にそのまま出す）
+#[derive(Debug, Clone, Copy)]
+pub struct LevelPreset {
+    pub id: &'static str,
+    pub label: &'static str,
+    /// その形式に渡すレベル値。None は形式の既定
     pub level: Option<i64>,
 }
 
-impl Default for Options {
-    fn default() -> Self {
-        Self { output: None, level: None }
+const ZIP_PRESETS: &[LevelPreset] = &[
+    LevelPreset { id: "store", label: "圧縮しない（最速）", level: Some(0) },
+    LevelPreset { id: "fast", label: "速度優先", level: Some(1) },
+    LevelPreset { id: "normal", label: "標準", level: None },
+    LevelPreset { id: "best", label: "最高圧縮（遅い）", level: Some(9) },
+];
+
+impl CompressFormat {
+    pub const ALL: &'static [CompressFormat] = &[CompressFormat::Zip];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            CompressFormat::Zip => "zip",
+        }
     }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            CompressFormat::Zip => "ZIP",
+        }
+    }
+
+    pub fn extension(self) -> &'static str {
+        match self {
+            CompressFormat::Zip => "zip",
+        }
+    }
+
+    pub fn presets(self) -> &'static [LevelPreset] {
+        match self {
+            CompressFormat::Zip => ZIP_PRESETS,
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<CompressFormat> {
+        Self::ALL.iter().copied().find(|f| f.id() == id)
+    }
+
+    /// プリセットIDからレベル値を引く。知らないIDは既定（None）。
+    pub fn level_for(self, preset_id: &str) -> Option<i64> {
+        self.presets().iter().find(|p| p.id == preset_id).and_then(|p| p.level)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Options {
+    /// 出力先を明示する場合。Noneなら入力から自動決定。
+    pub output: Option<PathBuf>,
+    /// 圧縮レベル（形式ごとの値。ZIPは 0-9）。Noneで既定。
+    pub level: Option<i64>,
+    pub format: CompressFormat,
 }
 
 #[derive(Debug)]
@@ -228,6 +287,13 @@ impl Ctx<'_> {
     }
 }
 
+/// `opts.format` の書庫を作る。
+pub fn create(inputs: &[PathBuf], opts: &Options) -> Result<Summary, Error> {
+    match opts.format {
+        CompressFormat::Zip => create_zip(inputs, opts),
+    }
+}
+
 /// ZIPを作る。失敗時は作りかけの出力ファイルを削除する。
 pub fn create_zip(inputs: &[PathBuf], opts: &Options) -> Result<Summary, Error> {
     if inputs.is_empty() {
@@ -251,8 +317,10 @@ pub fn create_zip(inputs: &[PathBuf], opts: &Options) -> Result<Summary, Error> 
     let out_abs = fs::canonicalize(&output).map_err(io_err(&output))?;
 
     let mut fo = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-    if let Some(l) = opts.level {
-        fo = fo.compression_level(Some(l));
+    match opts.level {
+        Some(0) => fo = fo.compression_method(CompressionMethod::Stored),
+        Some(l) => fo = fo.compression_level(Some(l)),
+        None => {}
     }
 
     let mut ctx = Ctx {
@@ -366,7 +434,7 @@ mod tests {
         let proj = t.path().join("proj");
         touch(&proj.join("a.txt"), "A");
         let out = proj.join("out.zip");
-        let s = create_zip(&[proj.clone()], &Options { output: Some(out.clone()), level: None }).unwrap();
+        let s = create_zip(&[proj.clone()], &Options { output: Some(out.clone()), ..Options::default() }).unwrap();
         assert_eq!(names(&s.output), vec!["a.txt"]);
     }
 
@@ -401,4 +469,5 @@ mod tests {
     }
 }
 
+pub mod formats;
 pub mod view;

@@ -1,4 +1,4 @@
-// Tote ZIPビューア。ファイル名は信用できない入力なので、画面への出力は必ず textContent で行う。
+// Tote 書庫ビューア。ファイル名は信用できない入力なので、画面への出力は必ず textContent で行う。
 (function () {
   'use strict';
 
@@ -9,7 +9,7 @@
   const els = {
     rows: $('rows'), crumbs: $('crumbs'), warn: $('warn'), empty: $('empty'), wrap: $('wrap'),
     stInfo: $('stInfo'), stSel: $('stSel'), btnUp: $('btnUp'),
-    btnAll: $('btnExtractAll'), btnSel: $('btnExtractSel'),
+    btnAll: $('btnExtractAll'), btnSel: $('btnExtractSel'), btnSettings: $('btnSettings'),
     toast: $('toast'), toastMsg: $('toastMsg'), toastAct: $('toastAct'),
     dlg: $('dlg'), dlgMsg: $('dlgMsg'), dlgOk: $('dlgOk'),
   };
@@ -24,6 +24,7 @@
   let anchor = null;       // Shift選択の起点
   let shown = [];          // 画面に出ているノード（並び順）
   let busy = false;
+  let cfg = { confirmRisky: true };
 
   // ------------------------------------------------------------ ツリー操作
 
@@ -93,7 +94,8 @@
 
     const num = (v) => el('td', 'num', v === undefined || n.isDir ? '' : v.toLocaleString('ja-JP'));
     tr.appendChild(num(e ? e.size : undefined));
-    tr.appendChild(num(e ? e.packed : undefined));
+    // 固体圧縮などで個別の格納サイズが無い形式は 0 で来る。0 と区別して空欄にする
+    tr.appendChild(num(e && !(e.packed === 0 && e.size > 0) ? e.packed : undefined));
     tr.appendChild(el('td', 'dim', T.typeLabel(n)));
     tr.appendChild(el('td', 'dim', e && e.modified ? e.modified : ''));
     return tr;
@@ -138,7 +140,8 @@
   function updateStatus() {
     els.stInfo.textContent =
       `${stats.files.toLocaleString('ja-JP')} ファイル / ${stats.dirs.toLocaleString('ja-JP')} フォルダ` +
-      ` ・ 展開後 ${T.fmtBytes(stats.total)} ・ 圧縮後 ${T.fmtBytes(stats.packed)}`;
+      ` ・ 展開後 ${T.fmtBytes(stats.total)} ・ 圧縮後 ${T.fmtBytes(stats.packed || archive.info.totalPacked || 0)}` +
+      (archive.info.format ? ` ・ ${archive.info.format}` : '');
     if (selected.size === 0) { els.stSel.textContent = ''; return; }
     let size = 0;
     for (const p of selected) {
@@ -195,7 +198,7 @@
     const e = n.entry;
     if (e && e.encrypted) { toast('パスワード付きのファイルは未対応です', { error: true }); return; }
     if (e && !e.safe) { toast('不正なパスのため開けません', { error: true }); return; }
-    if (e && e.risky) {
+    if (e && e.risky && cfg.confirmRisky) {
       const ok = await confirmDialog(
         `「${n.name}」は実行形式またはスクリプトです。\n開くとプログラムが実行される可能性があります。開きますか？`, '開く');
       if (!ok) return;
@@ -225,8 +228,10 @@
 
   function extractAll() {
     return withBusy(async () => {
-      toast('展開中…', { sticky: true });
-      reportDone(await invoke('extract_all'));
+      if (cfg.extractDest !== 'ask') toast('展開中…', { sticky: true });
+      const done = await invoke('extract_all');
+      if (!done) { hideToast(); return; } // 展開先の選択がキャンセルされた
+      reportDone(done);
     });
   }
 
@@ -340,6 +345,9 @@
   els.btnUp.addEventListener('click', () => cd(parentOf(cwd)));
   els.btnAll.addEventListener('click', extractAll);
   els.btnSel.addEventListener('click', extractSelected);
+  els.btnSettings.addEventListener('click', async () => {
+    try { await invoke('open_settings'); } catch (err) { toast(String(err), { error: true }); }
+  });
 
   els.wrap.addEventListener('pointerdown', (ev) => {
     if (ev.target === els.wrap || ev.target === els.empty) { selected = new Set(); updateSelectionView(); }
@@ -366,6 +374,7 @@
   // ------------------------------------------------------------ 起動
 
   async function init() {
+    try { cfg = Object.assign(cfg, await invoke('get_config')); } catch (_) { /* 設定が読めなくても既定値で動く */ }
     try {
       archive = await invoke('load_archive');
     } catch (err) {

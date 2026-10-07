@@ -2,8 +2,13 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod collect;
+mod config;
 mod shell;
 mod ui;
+#[cfg(feature = "viewer")]
+mod gui;
+#[cfg(feature = "viewer")]
+mod settings;
 #[cfg(feature = "viewer")]
 mod viewer;
 
@@ -11,21 +16,19 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use tote_core::{Options, create_zip};
 
-const USAGE: &str = "Tote — ZIP作成・閲覧ツール\n\n\
-使い方:\n  tote <ファイル/フォルダ>...   ZIPを作成\n  tote --open <zip>            ZIPの中身を開く\n  tote --install               右クリック・「送る」・ZIPの関連付け候補に登録\n  tote --uninstall             登録を解除";
-
-/// この秒数以上かかったZIPは、完了をエクスプローラーで選択して知らせる
-const REVEAL_AFTER_SECS: f32 = 3.0;
+const USAGE: &str = "Tote — 書庫の作成・閲覧ツール\n\n\
+使い方:\n  tote                         設定画面を開く（右クリック登録・圧縮設定など）\n  tote <ファイル/フォルダ>...   ZIPを作成\n  tote --open <書庫>           書庫の中身を開く（zip 7z rar gz tgz tar cab lzh）\n  tote --install               右クリック・「送る」・ZIPの関連付け候補を登録\n  tote --uninstall             登録をすべて解除";
 
 fn main() {
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
 
     match args.first().and_then(|a| a.to_str()) {
-        None => interactive_setup(),
-        Some("--install") => report(shell::install(&exe()), "登録しました。右クリックメニューと「送る」に追加されています。"),
-        Some("--uninstall") => report(shell::uninstall(), "登録を解除しました。"),
+        None | Some("--settings") => open_settings(),
+        Some("--install") => {
+            report(shell::install_defaults(&mut shell::System, &exe()), "登録しました。右クリックメニューと「送る」に追加されています。")
+        }
+        Some("--uninstall") => report(shell::uninstall_all(&mut shell::System), "登録を解除しました。"),
         Some("--open") => open_viewer(args.get(1)),
         Some("--help" | "-h" | "/?") => ui::info(USAGE),
         Some(_) => compress_args(args.into_iter().map(PathBuf::from).collect()),
@@ -43,14 +46,14 @@ fn report(r: Result<(), String>, ok_msg: &str) {
     }
 }
 
-/// `--open <zip>`: ZIPの中身を見る窓を開く。
+/// `--open <書庫>`: 書庫の中身を見る窓を開く。
 fn open_viewer(path: Option<&OsString>) {
     let Some(p) = path else {
-        ui::error("--open にはZIPファイルのパスを指定してください");
+        ui::error("--open には書庫ファイルのパスを指定してください");
         return;
     };
     #[cfg(feature = "viewer")]
-    viewer::run(PathBuf::from(p));
+    gui::run(gui::Mode::Viewer(PathBuf::from(p)));
     #[cfg(not(feature = "viewer"))]
     {
         let _ = p;
@@ -58,11 +61,20 @@ fn open_viewer(path: Option<&OsString>) {
     }
 }
 
-/// 引数なし起動（exeのダブルクリック）: 登録/解除を選べる。
+/// 引数なし起動（exeのダブルクリック）: 設定画面を開く。
+fn open_settings() {
+    #[cfg(feature = "viewer")]
+    gui::run(gui::Mode::Settings);
+    #[cfg(not(feature = "viewer"))]
+    interactive_setup();
+}
+
+/// 画面なしのビルド用の簡易版: 登録/解除だけ選べる。
+#[cfg(not(feature = "viewer"))]
 fn interactive_setup() {
     match ui::ask("右クリックメニューと「送る」に登録しますか？\n\nはい: 登録 / いいえ: 登録解除 / キャンセル: 何もしない") {
-        ui::Choice::Yes => report(shell::install(&exe()), "登録しました。"),
-        ui::Choice::No => report(shell::uninstall(), "登録を解除しました。"),
+        ui::Choice::Yes => report(shell::install_defaults(&mut shell::System, &exe()), "登録しました。"),
+        ui::Choice::No => report(shell::uninstall_all(&mut shell::System), "登録を解除しました。"),
         ui::Choice::Cancel => {}
     }
 }
@@ -84,7 +96,8 @@ fn compress_args(paths: Vec<PathBuf>) {
 
 fn run(paths: Vec<PathBuf>) {
     let started = Instant::now();
-    match create_zip(&paths, &Options::default()) {
+    let cfg = config::load();
+    match tote_core::create(&paths, &cfg.compress_options()) {
         Ok(summary) => {
             if !summary.skipped.is_empty() {
                 ui::error(&format!(
@@ -92,7 +105,7 @@ fn run(paths: Vec<PathBuf>) {
                     summary.skipped.len(),
                     summary.output.display()
                 ));
-            } else if started.elapsed().as_secs_f32() >= REVEAL_AFTER_SECS {
+            } else if cfg.should_reveal(started.elapsed().as_secs_f32()) {
                 ui::reveal(&summary.output);
             }
         }

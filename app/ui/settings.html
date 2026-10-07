@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tote の設定</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="settings">
+  <header class="toolbar">
+    <strong>Tote の設定</strong>
+    <div class="spacer"></div>
+    <span id="ver" class="dim"></span>
+  </header>
+
+  <main class="page">
+    <section>
+      <h2>右クリック・関連付けの登録</h2>
+      <p class="note" id="regNote"></p>
+      <div id="items" class="items"></div>
+      <div class="btnrow">
+        <button id="btnApply" class="primary">変更を適用</button>
+        <button id="btnRepair" title="登録済みの項目を、今のtote.exeの場所で登録し直します">壊れた登録を修復</button>
+        <button id="btnDefaultApps" title="Windowsの「既定のアプリ」を開きます。ダブルクリックで開きたい形式はここで Tote を選びます">既定のアプリを開く</button>
+        <div class="spacer"></div>
+        <button id="btnUninstall" class="danger">すべて解除</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>圧縮</h2>
+      <div class="field"><label for="fmt">形式</label><select id="fmt"></select></div>
+      <div class="field"><label for="level">圧縮レベル</label><select id="level"></select></div>
+      <div class="field"><label for="reveal">完了後にフォルダで表示</label>
+        <select id="reveal">
+          <option value="slow">時間がかかったときだけ</option>
+          <option value="always">毎回</option>
+          <option value="never">しない</option>
+        </select>
+      </div>
+    </section>
+
+    <section>
+      <h2>閲覧・展開</h2>
+      <div class="field"><label for="confirmRisky">実行形式・スクリプトを開く前に確認する</label><input type="checkbox" id="confirmRisky"></div>
+      <div class="field"><label for="extractDest">「すべて展開」の展開先</label>
+        <select id="extractDest">
+          <option value="besideArchive">書庫と同じ場所の「書庫名」フォルダ</option>
+          <option value="ask">毎回フォルダを選ぶ</option>
+        </select>
+      </div>
+      <p class="note">読み取りに対応: ZIP / 7z / RAR / tar.gz・gz / CAB / LZH（パスワード付きは未対応）。作成は ZIP のみ。</p>
+    </section>
+
+    <section>
+      <h2>ZIPへの追加 <span class="tag">今後のバージョンで有効</span></h2>
+      <p class="note">書庫の中へファイルをドロップして追加する機能の書き込み方です。選んだ内容は保存され、機能が入ったときに使われます。</p>
+      <label class="radio"><input type="radio" name="append" value="safe"> <b>安全優先</b>：一時ファイルへ書いてから差し替え。途中で止まっても元の書庫は無事（大きい書庫ではコピーに時間がかかる）</label>
+      <label class="radio"><input type="radio" name="append" value="fast"> <b>高速優先</b>：書庫の末尾へその場で追記。速いが、途中で止まると書庫が壊れることがある</label>
+    </section>
+
+    <section class="foot">
+      <button id="btnReset" class="danger">設定を初期化</button>
+      <div class="dim small" id="paths"></div>
+    </section>
+  </main>
+
+  <div id="toast" role="status" hidden>
+    <span id="toastMsg"></span>
+    <button id="toastAct" hidden></button>
+  </div>
+
+  <dialog id="dlg">
+    <form method="dialog">
+      <p id="dlgMsg"></p>
+      <div class="dlg-row">
+        <button value="cancel">キャンセル</button>
+        <button value="ok" id="dlgOk" class="primary">OK</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="settings.js"></script>
+</body>
+</html>

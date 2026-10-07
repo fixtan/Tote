@@ -178,3 +178,38 @@ dialog p { margin: 0 0 16px; line-height: 1.7; white-space: pre-wrap; user-selec
 ::-webkit-scrollbar { width: 12px; height: 12px; }
 ::-webkit-scrollbar-thumb { background: #2f3441; border-radius: 6px; border: 3px solid var(--bg); }
 ::-webkit-scrollbar-thumb:hover { background: #3b4254; }
+
+/* ---------------------------------------------------------------- 設定画面 */
+body.settings { user-select: none; }
+.page { flex: 1; overflow: auto; padding: 14px 18px 24px; }
+.page section { margin: 0 0 22px; max-width: 760px; }
+.page h2 { font-size: 14px; margin: 0 0 8px; padding-bottom: 5px; border-bottom: 1px solid var(--line); font-weight: 600; }
+.page .note { color: var(--dim); margin: 0 0 10px; line-height: 1.6; }
+.dim { color: var(--dim); }
+.small { font-size: 11px; white-space: pre-wrap; user-select: text; margin-top: 8px; }
+.tag { margin-left: 8px; padding: 1px 7px; border-radius: 9px; font-size: 11px; font-weight: 400; background: var(--warn-bg); color: var(--warn-text); }
+
+.items { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+.item { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 6px; cursor: pointer; }
+.item:hover { background: var(--hover); }
+.item-body { flex: 1; min-width: 0; }
+.item-title { font-weight: 500; }
+.item-hint { font-size: 12px; }
+.state { font-size: 12px; white-space: nowrap; }
+.state.ok { color: #6fd08c; }
+.state.warn { color: var(--warn-text); }
+
+.btnrow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+button.danger { color: var(--danger); }
+button.danger:hover { border-color: #7a3a3a; }
+
+.field { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 6px 4px; }
+.field select { min-width: 280px; }
+select {
+  font: inherit; color: var(--text); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px;
+}
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width: 15px; height: 15px; }
+.radio { display: flex; align-items: flex-start; gap: 8px; padding: 6px 4px; line-height: 1.6; cursor: pointer; }
+.radio input { margin-top: 3px; }
+.foot { display: flex; flex-direction: column; align-items: flex-start; }

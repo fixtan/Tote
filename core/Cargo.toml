@@ -1,9 +1,17 @@
 [package]
 name = "tote-core"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
+rust-version = "1.94"
 
 [dependencies]
+cab = "0.6.0"
+delharc = "0.7.0"
+flate2 = "1.1.10"
+sevenz-rust2 = "0.23.0"
+
+tar = "0.4.46"
+unrar = "0.5.8"
 encoding_rs = "0.8.42"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"

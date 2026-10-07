@@ -2,35 +2,63 @@
 
 何でも放り込んで持ち運ぶ、自作のWinRAR代替アーカイバ。
 
-- v0.1.0: ZIP作成（右クリック / 送る / D&D）
-- v0.2.0: ZIPビューア（展開前に中身を閲覧、ドラッグで個別展開）
+| 版 | 内容 |
+|---|---|
+| v0.1.0 | ZIP作成（右クリック / 送る / D&D） |
+| v0.2.0 | ZIPビューア（展開前に中身を閲覧、ドラッグで個別展開） |
+| v0.3.0 | 設定画面、閲覧・展開の対応形式を拡大（7z / RAR / tar.gz・gz / CAB / LZH）、圧縮レベルの選択 |
 
 ## ビルド (Windows)
     cargo build --release
-    → target\release\tote.exe（初回は Tauri の依存取得で時間がかかる。WebView2 が必要（Win10/11は通常入っている））
+    → target\release\tote.exe（初回は依存の取得とビルドで時間がかかる。WebView2 が必要（Win10/11は通常入っている）。
+      RAR 展開用の C++ ライブラリをビルドするため、Visual Studio Build Tools（C++）が必要）
 
 ## 使い方
-1. `tote.exe` をダブルクリック → 「はい」で右クリックメニュー・「送る」・.zip の「Toteで開く」を登録（HKCU のみ、管理者権限不要）
-2. 圧縮: 右クリック → (Win11は「その他のオプションを確認」) → ToteでZIPに圧縮 / 15個超は 送る → ToteでZIPに圧縮 / D&D
-3. 閲覧: .zip を右クリック → Toteで開く、または `tote.exe --open file.zip`
-4. ダブルクリックで開きたい場合: .zip を右クリック → プログラムから開く → Tote → 「常に使う」（Windows の仕様で手動設定）
-5. 解除は `tote.exe --uninstall`（exeを移動したら再登録）
+1. `tote.exe` をダブルクリック → **設定画面**が開く。使いたい項目にチェックして「変更を適用」
+   - 右クリックメニュー「ToteでZIPに圧縮」 / 「送る」メニュー / 形式ごとの「Toteで開く」（HKCU のみ、管理者権限不要）
+   - Win11 では右クリックの項目は「その他のオプションを確認」の中に出る
+2. 圧縮: 右クリック → ToteでZIPに圧縮 / 15個超は 送る → ToteでZIPに圧縮 / D&D
+3. 閲覧: 書庫を右クリック → Toteで開く、または `tote.exe --open file.7z`
+4. ダブルクリックで開きたい形式: 設定画面の「既定のアプリを開く」→ その形式の既定を Tote にする（Windows の仕様で手動設定）
+5. 登録が消えた/exeを移動した → 設定画面の「壊れた登録を修復」。全部消すなら「すべて解除」（`tote.exe --uninstall` でも可）
+
+## 設定（`%APPDATA%\Tote\config.json`。画面から変更・初期化できる）
+- 圧縮: 形式（今は ZIP のみ）、圧縮レベル（圧縮しない / 速度優先 / 標準 / 最高）、完了後にフォルダで表示するか
+- 閲覧・展開: 実行形式を開く前の確認、「すべて展開」の展開先（書庫名のフォルダ / 毎回選ぶ）
+- ZIPへの追加の書き込み方（安全優先 / 高速優先）※追加機能は次の版で有効。選択だけ先に保存される
 
 ## ビューアの操作
 - ダブルクリック: フォルダへ入る / ファイルは一時フォルダへ展開して開く（実行形式は確認あり）
 - 項目を **Explorer / デスクトップへドラッグ** → その項目だけ展開される
-- Ctrl/Shift クリックで複数選択、Backspace で一つ上へ、列見出しで並べ替え
-- 「すべて展開」→ ZIP名のフォルダへ / 「選択を展開…」→ フォルダを選んで展開
+- Ctrl/Shift クリックで複数選択、Backspace で一つ上へ、列見出しで並べ替え、⚙ で設定
 - 警告表示: 実行形式(exe/ps1/lnk 等)、不正パス(`..` や絶対パス＝展開されない)、パスワード付き(未対応・スキップ)
 - 既存ファイルは上書きしない（`name (1)`）、更新日時は保持
 
+## 対応形式
+| 形式 | 閲覧・展開 | 作成 | 備考 |
+|---|---|---|---|
+| ZIP | ○ | ○ | 日本語名(Shift_JIS)対応 |
+| 7z | ○ | – | パスワード付きは未対応 |
+| RAR | ○ | – | 展開のみ（RARの作成は仕様上できない）。パスワード付き・分割は未対応 |
+| tar.gz / tgz / tar / gz | ○ | – | 一覧に全体の走査が必要（大きいと時間がかかる） |
+| CAB | ○ | – | 日本語名(Shift_JIS)のCABは文字化けすることがある。分割CABは未対応 |
+| LZH / LHA | ○ | – | 日本語名(Shift_JIS)対応 |
+| ISO | – | – | 未対応（`core/src/formats/iso.rs` に枠だけ用意。エクスプローラーのマウントで代用） |
+
+形式は拡張子ではなく中身（先頭バイト）で判定する。新しい形式の足し方は `core/src/formats/mod.rs` の先頭に書いてある。
+
 ## テスト
-    cargo test --workspace --no-default-features   # Linux でも可（ビューアUI抜き）
-    node --test app/tests-ui/tree.test.js
+    cargo test --workspace --no-default-features   # Linux でも可（画面抜き）
+    cargo test -p tote                              # 画面込み（Linux は gtk/webkit が必要）
+    cd app\tests-ui && node --test tree.test.js     # 表示ロジック
+    cd app\tests-ui && npm install && npm run test:dom   # 画面の動作（jsdom。node_modules は .gitignore へ）
 
 ## 構成
-- core/  ZIP作成・一覧・展開ロジック
-- app/   exe（引数処理、集約、レジストリ登録）、app/src/viewer.rs（Tauri）、app/ui/（画面）
+- core/  ZIP作成、書庫の一覧・展開（`formats/` に形式ごとの読み出し）
+- app/   exe（引数処理、複数選択の集約、設定、レジストリ登録）、`gui.rs`/`viewer.rs`/`settings.rs`（Tauri）、`ui/`（画面）
 
 ## 今後
-v0.3: ZIPへのドロップ追加 / パスワード付きZIP / 他形式
+v0.4: ZIPへのドロップ追加（書き込み方は設定の「ZIPへの追加」に従う）
+その後: ISO、パスワード付き、Linux 対応（`.deb/.AppImage`）
+
+ライセンス表記は NOTICE.md を参照（RAR展開に UnRAR のソースを使用）。

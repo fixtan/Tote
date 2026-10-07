@@ -1,4 +1,4 @@
-//! ZIPビューア（Tauri）。`tote.exe --open <zip>` で窓が開く。
+//! 書庫ビューアのコマンド（Tauri）。`tote.exe --open <書庫>` で窓が開く（起動は gui.rs）。
 //! 圧縮（右クリック/送る）はこのモジュールを通らない＝窓もWebViewも作らず無窓のまま動く。
 
 use std::collections::HashMap;
@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::Serialize;
-use tauri::{State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{State, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 use tote_core::view::{self, ArchiveInfo, Skipped};
 
@@ -16,15 +16,21 @@ const DRAG_IMAGE: &[u8] = include_bytes!("../icons/drag.png");
 const SCRATCH_DRAG: &str = "tote-drag";
 const SCRATCH_OPEN: &str = "tote-open";
 
-struct Viewer {
+pub struct Viewer {
     zip: PathBuf,
     /// ドラッグ用に展開済みの項目（選択パスのキー → 展開された最上位項目）
     drag_cache: Mutex<HashMap<String, Vec<PathBuf>>>,
 }
 
+impl Viewer {
+    pub fn new(zip: PathBuf) -> Self {
+        Viewer { zip, drag_cache: Mutex::new(HashMap::new()) }
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Loaded {
+pub struct Loaded {
     path: String,
     name: String,
     info: ArchiveInfo,
@@ -32,7 +38,7 @@ struct Loaded {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Done {
+pub struct Done {
     dest: String,
     files: usize,
     skipped: Vec<Skipped>,
@@ -42,10 +48,20 @@ fn file_name(p: &Path) -> String {
     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-/// 展開先の既定: ZIPと同じ場所の「ZIP名」フォルダ（既にあれば `(1)` ...）
+/// 書庫名から拡張子を除いた名前。`a.tar.gz` は `a`（`.tar` も落とす）。
+fn archive_stem(p: &Path) -> String {
+    let mut stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "extracted".into());
+    let ext = p.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    if ext == "gz" && stem.to_ascii_lowercase().ends_with(".tar") {
+        stem.truncate(stem.len() - 4);
+    }
+    if stem.is_empty() { "extracted".into() } else { stem }
+}
+
+/// 展開先の既定: 書庫と同じ場所の「書庫名」フォルダ（既にあれば `(1)` ...）
 fn default_dest(zip: &Path) -> PathBuf {
     let dir = zip.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
-    let stem = zip.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "extracted".into());
+    let stem = archive_stem(zip);
     let first = dir.join(&stem);
     if !first.exists() {
         return first;
@@ -87,43 +103,58 @@ async fn run_extract(zip: PathBuf, selection: Vec<String>, dest: PathBuf) -> Res
 // ---------------------------------------------------------------- コマンド
 
 #[tauri::command]
-async fn load_archive(state: State<'_, Viewer>) -> Result<Loaded, String> {
+pub async fn load_archive(state: State<'_, Viewer>) -> Result<Loaded, String> {
     let zip = state.zip.clone();
     let z = zip.clone();
-    let info = tauri::async_runtime::spawn_blocking(move || view::list_zip(&z))
+    let info = tauri::async_runtime::spawn_blocking(move || view::list(&z))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
     Ok(Loaded { name: file_name(&zip), path: zip.display().to_string(), info })
 }
 
-#[tauri::command]
-async fn extract_all(state: State<'_, Viewer>) -> Result<Done, String> {
-    let zip = state.zip.clone();
-    let dest = default_dest(&zip);
-    run_extract(zip, Vec::new(), dest).await
-}
-
-/// 展開先をフォルダ選択ダイアログで決めて、選択した項目を展開する。キャンセルなら None。
-#[tauri::command]
-async fn extract_selected(
-    app: tauri::AppHandle,
-    state: State<'_, Viewer>,
-    paths: Vec<String>,
-) -> Result<Option<Done>, String> {
+/// 展開先をフォルダ選択ダイアログで決める。キャンセルなら None。
+async fn pick_dest(app: tauri::AppHandle) -> Result<Option<PathBuf>, String> {
     let picked = tauri::async_runtime::spawn_blocking(move || {
         app.dialog().file().set_title("展開先のフォルダを選択").blocking_pick_folder()
     })
     .await
     .map_err(|e| e.to_string())?;
-    let Some(dest) = picked else { return Ok(None) };
-    let dest = dest.into_path().map_err(|e| e.to_string())?;
+    match picked {
+        Some(p) => Ok(Some(p.into_path().map_err(|e| e.to_string())?)),
+        None => Ok(None),
+    }
+}
+
+/// すべて展開。展開先は設定（書庫と同じ場所の「書庫名」フォルダ / 毎回選ぶ）に従う。キャンセルなら None。
+#[tauri::command]
+pub async fn extract_all(app: tauri::AppHandle, state: State<'_, Viewer>) -> Result<Option<Done>, String> {
+    let zip = state.zip.clone();
+    let dest = if crate::config::load().extract_dest == "ask" {
+        match pick_dest(app).await? {
+            Some(d) => d,
+            None => return Ok(None),
+        }
+    } else {
+        default_dest(&zip)
+    };
+    run_extract(zip, Vec::new(), dest).await.map(Some)
+}
+
+/// 展開先をフォルダ選択ダイアログで決めて、選択した項目を展開する。キャンセルなら None。
+#[tauri::command]
+pub async fn extract_selected(
+    app: tauri::AppHandle,
+    state: State<'_, Viewer>,
+    paths: Vec<String>,
+) -> Result<Option<Done>, String> {
+    let Some(dest) = pick_dest(app).await? else { return Ok(None) };
     run_extract(state.zip.clone(), paths, dest).await.map(Some)
 }
 
 /// ダブルクリック: 1ファイルだけ一時フォルダに展開して、関連付けられたアプリで開く。
 #[tauri::command]
-async fn open_entry(state: State<'_, Viewer>, path: String) -> Result<(), String> {
+pub async fn open_entry(state: State<'_, Viewer>, path: String) -> Result<(), String> {
     let zip = state.zip.clone();
     let opened = tauri::async_runtime::spawn_blocking(move || -> Result<PathBuf, String> {
         let dir = view::scratch_dir(SCRATCH_OPEN).map_err(|e| e.to_string())?;
@@ -136,13 +167,13 @@ async fn open_entry(state: State<'_, Viewer>, path: String) -> Result<(), String
 }
 
 #[tauri::command]
-fn open_folder(path: String) -> Result<(), String> {
+pub fn open_folder(path: String) -> Result<(), String> {
     open_with_default(Path::new(&path))
 }
 
 /// ドラッグの準備: 選択項目を一時フォルダへ展開しておく（ドラッグ開始の瞬間に間に合わせるため）。
 #[tauri::command]
-async fn prepare_drag(state: State<'_, Viewer>, paths: Vec<String>) -> Result<(), String> {
+pub async fn prepare_drag(state: State<'_, Viewer>, paths: Vec<String>) -> Result<(), String> {
     let key = drag_key(&paths);
     if state.drag_cache.lock().map_err(|e| e.to_string())?.contains_key(&key) {
         return Ok(());
@@ -162,7 +193,7 @@ async fn prepare_drag(state: State<'_, Viewer>, paths: Vec<String>) -> Result<()
 /// 展開済みの項目を、OSのドラッグ＆ドロップ（エクスプローラー等へ）として開始する。
 /// マウスボタンが押されている間に呼ぶこと。
 #[tauri::command]
-async fn start_drag(window: WebviewWindow, state: State<'_, Viewer>, paths: Vec<String>) -> Result<(), String> {
+pub async fn start_drag(window: WebviewWindow, state: State<'_, Viewer>, paths: Vec<String>) -> Result<(), String> {
     let key = drag_key(&paths);
     let items = state
         .drag_cache
@@ -174,51 +205,48 @@ async fn start_drag(window: WebviewWindow, state: State<'_, Viewer>, paths: Vec<
     let w = window.clone();
     window
         .run_on_main_thread(move || {
-            let r = drag::start_drag(
-                &w,
-                drag::DragItem::Files(items),
-                drag::Image::Raw(DRAG_IMAGE.to_vec()),
-                |_result, _cursor| {},
-                drag::Options::default(),
-            );
-            if let Err(e) = r {
+            if let Err(e) = begin_drag(&w, items) {
                 eprintln!("drag failed: {e}");
             }
         })
         .map_err(|e| e.to_string())
 }
 
+#[cfg(not(target_os = "linux"))]
+fn begin_drag(w: &WebviewWindow, items: Vec<PathBuf>) -> Result<(), String> {
+    drag::start_drag(w, drag::DragItem::Files(items), drag::Image::Raw(DRAG_IMAGE.to_vec()), |_r, _c| {}, drag::Options::default())
+        .map_err(|e| e.to_string())
+}
+
+/// Linux (GTK) は WebviewWindow ではなく GTK のウィンドウを渡す必要がある
+#[cfg(target_os = "linux")]
+fn begin_drag(w: &WebviewWindow, items: Vec<PathBuf>) -> Result<(), String> {
+    let gtk = w.gtk_window().map_err(|e| e.to_string())?;
+    drag::start_drag(&gtk, drag::DragItem::Files(items), drag::Image::Raw(DRAG_IMAGE.to_vec()), |_r, _c| {}, drag::Options::default())
+        .map_err(|e| e.to_string())
+}
+
 // ---------------------------------------------------------------- 起動
 
-pub fn run(zip: PathBuf) {
+/// 古い一時フォルダを消す（ビューア起動時）
+pub fn cleanup_old_scratch() {
     let day = Duration::from_secs(12 * 3600);
     view::cleanup_scratch(SCRATCH_DRAG, day);
     view::cleanup_scratch(SCRATCH_OPEN, day);
+}
 
-    let title = format!("{} - Tote", file_name(&zip));
-    let result = tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
-        .manage(Viewer { zip, drag_cache: Mutex::new(HashMap::new()) })
-        .invoke_handler(tauri::generate_handler![
-            load_archive,
-            extract_all,
-            extract_selected,
-            open_entry,
-            open_folder,
-            prepare_drag,
-            start_drag
-        ])
-        .setup(move |app| {
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title(title.clone())
-                .inner_size(980.0, 640.0)
-                .min_inner_size(560.0, 360.0)
-                .build()?;
-            Ok(())
-        })
-        .run(tauri::generate_context!());
+#[cfg(test)]
+mod tests {
+    use super::archive_stem;
+    use std::path::Path;
 
-    if let Err(e) = result {
-        crate::ui::error(&format!("ビューアを起動できませんでした: {e}"));
+    #[test]
+    fn stem_drops_tar_before_gz() {
+        assert_eq!(archive_stem(Path::new("/x/a.tar.gz")), "a");
+        assert_eq!(archive_stem(Path::new("/x/a.TAR.GZ")), "a");
+        assert_eq!(archive_stem(Path::new("/x/a.tgz")), "a");
+        assert_eq!(archive_stem(Path::new("/x/photo.v2.zip")), "photo.v2");
+        assert_eq!(archive_stem(Path::new("/x/data.bin.gz")), "data.bin");
+        assert_eq!(archive_stem(Path::new("/x/.gz")), ".gz");
     }
 }
