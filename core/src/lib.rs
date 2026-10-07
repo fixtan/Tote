@@ -178,7 +178,7 @@ pub fn unique_path(dir: &Path, stem: &str, ext: &str) -> PathBuf {
     unreachable!()
 }
 
-fn mtime_of(meta: &fs::Metadata) -> DateTime {
+pub(crate) fn mtime_of(meta: &fs::Metadata) -> DateTime {
     // ZIPの時刻はタイムゾーン情報を持たず、Windows系ツールはローカル時刻で格納する。
     // ローカルオフセットが取れなければUTCで代用する。
     meta.modified()
@@ -469,5 +469,6 @@ mod tests {
     }
 }
 
+pub mod append;
 pub mod formats;
 pub mod view;

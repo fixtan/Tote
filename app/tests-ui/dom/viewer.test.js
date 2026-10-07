@@ -12,19 +12,22 @@ const entries = [
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function boot({ prepareDelay = 0, cfg = {}, extractAll = { dest: 'C:\\x\\test', files: 3, skipped: [] }, ents = entries, format = 'ZIP' } = {}) {
+async function boot({ prepareDelay = 0, cfg = {}, extractAll = { dest: 'C:\\x\\test', files: 3, skipped: [] }, ents = entries, format = 'ZIP', added = { files: 2, dirs: 0, replaced: 0, skipped: 0, fellBack: false } } = {}) {
   const calls = [];
+  const handlers = {};
+  let extra = [];
   const invoke = async (cmd, args) => {
     calls.push([cmd, args]);
-    if (cmd === 'load_archive') return { path: 'C:\\x\\test.zip', name: 'test.zip', info: { entries: ents, totalSize: 0, totalPacked: 0, comment: '', format } };
+    if (cmd === 'load_archive') return { path: 'C:\\x\\test.zip', name: 'test.zip', info: { entries: [...ents, ...extra], totalSize: 0, totalPacked: 0, comment: '', format } };
     if (cmd === 'get_config') return Object.assign({ confirmRisky: true, extractDest: 'besideArchive' }, cfg);
     if (cmd === 'prepare_drag') { await sleep(prepareDelay); return null; }
     if (cmd === 'extract_all') return extractAll;
+    if (cmd === 'add_files') { extra = [E('added.txt')]; return added; }
     return null;
   };
   const dom = await JSDOM.fromFile(require('node:path').join(__dirname, '../../ui/index.html'), {
     runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true,
-    beforeParse(w) { w.__TAURI__ = { core: { invoke } }; },
+    beforeParse(w) { w.__TAURI__ = { core: { invoke }, event: { listen: async (n, f) => { handlers[n] = f; } } }; },
   });
   await new Promise((r) => dom.window.addEventListener('load', r));
   await sleep(50);
@@ -36,7 +39,8 @@ async function boot({ prepareDelay = 0, cfg = {}, extractAll = { dest: 'C:\\x\\t
   };
   const rowsText = () => [...d.querySelectorAll('#rows tr')].map((tr) => tr.querySelector('.label').textContent);
   const row = (name) => [...d.querySelectorAll('#rows tr')].find((tr) => tr.querySelector('.label').textContent === name);
-  return { w, d, calls, fire, rowsText, row };
+  const emit = (n, payload) => handlers[n] && handlers[n]({ payload });
+  return { w, d, calls, fire, rowsText, row, emit };
 }
 
 (async () => {
@@ -207,6 +211,45 @@ async function boot({ prepareDelay = 0, cfg = {}, extractAll = { dest: 'C:\\x\\t
   await sleep(10);
   assert.ok(s.calls.some((c) => c[0] === 'open_settings'));
   ok('⚙で設定画面を開く');
+
+  // 19. ドロップで追加（ZIP）
+  s = await boot();
+  s.emit('tauri://drag-enter', { paths: ['C:\\in\\a.txt'] });
+  assert.ok(!s.d.getElementById('drop').hidden);
+  assert.match(s.d.getElementById('dropBox').textContent, /ここにドロップして追加/);
+  s.row('docs').dispatchEvent(new s.w.MouseEvent('dblclick', { bubbles: true }));
+  s.emit('tauri://drag-drop', { paths: ['C:\\in\\a.txt', 'C:\\in\\dir'] });
+  assert.ok(s.d.getElementById('drop').hidden, 'ドロップしたらオーバーレイは消える');
+  await sleep(40);
+  const add = s.calls.find((c) => c[0] === 'add_files');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(add[1])), { paths: ['C:\\in\\a.txt', 'C:\\in\\dir'], dest: 'docs' });
+  assert.strictEqual(s.calls.filter((c) => c[0] === 'load_archive').length, 2, '追加後に再読み込み');
+  assert.match(s.d.getElementById('toastMsg').textContent, /2 個のファイルを追加しました/);
+  assert.strictEqual(s.rowsText()[0], '..', '今いるフォルダに留まる');
+  ok('ZIPへドロップ→現在のフォルダへ追加→再読み込み');
+
+  // 20. ZIP以外には追加できない / 自分でドラッグ出ししたものは無視
+  s = await boot({ format: '7z' });
+  s.emit('tauri://drag-enter', { paths: ['C:\\in\\a.txt'] });
+  assert.ok(s.d.getElementById('drop').classList.contains('deny'));
+  assert.match(s.d.getElementById('dropBox').textContent, /追加できません/);
+  s.emit('tauri://drag-drop', { paths: ['C:\\in\\a.txt'] });
+  assert.ok(!s.calls.some((c) => c[0] === 'add_files'));
+  assert.match(s.d.getElementById('toastMsg').textContent, /ZIPのみ/);
+  s = await boot();
+  s.emit('tauri://drag-enter', { paths: ['C:\\Temp\\tote-drag\\123\\a.txt'] });
+  assert.ok(s.d.getElementById('drop').hidden);
+  s.emit('tauri://drag-drop', { paths: ['C:\\Temp\\tote-drag\\123\\a.txt'] });
+  await sleep(20);
+  assert.ok(!s.calls.some((c) => c[0] === 'add_files'));
+  ok('ZIP以外は拒否表示、自分のドラッグ出しは無視');
+
+  // 21. 置き換え・方式切替の通知
+  s = await boot({ added: { files: 1, dirs: 0, replaced: 1, skipped: 0, fellBack: true } });
+  s.emit('tauri://drag-drop', { paths: ['C:\\in\\a.txt'] });
+  await sleep(40);
+  assert.match(s.d.getElementById('toastMsg').textContent, /1 個を置き換え.*安全な方式/);
+  ok('置き換え・安全な方式への切替を通知');
 
   console.log(`\nall ${n} passed`);
   process.exit(0);

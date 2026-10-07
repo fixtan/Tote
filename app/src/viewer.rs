@@ -152,6 +152,48 @@ pub async fn extract_selected(
     run_extract(state.zip.clone(), paths, dest).await.map(Some)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Added {
+    files: usize,
+    dirs: usize,
+    replaced: usize,
+    skipped: usize,
+    /// その場追記を選んでいたが、同名の置き換えがあったため安全な方式に切り替えた
+    fell_back: bool,
+}
+
+/// 自分がドラッグ出しのために展開した一時ファイルか（自分の窓へ戻された場合に取り込まないため）
+fn is_own_scratch(p: &Path) -> bool {
+    let tmp = std::env::temp_dir();
+    [SCRATCH_DRAG, SCRATCH_OPEN].iter().any(|s| p.starts_with(tmp.join(s)))
+}
+
+/// ドロップされたファイル・フォルダを、開いているZIPの `dest`（ZIP内のフォルダ。ルートは空）へ追加する。
+/// 追加方式は設定（appendMode）に従う。対象がなければ None。
+#[tauri::command]
+pub async fn add_files(state: State<'_, Viewer>, paths: Vec<String>, dest: String) -> Result<Option<Added>, String> {
+    let inputs: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).filter(|p| !is_own_scratch(p)).collect();
+    if inputs.is_empty() {
+        return Ok(None);
+    }
+    let zip = state.zip.clone();
+    let cfg = crate::config::load();
+    let mode = tote_core::append::AppendMode::from_id(&cfg.append_mode);
+    let level = cfg.compress_options().level;
+    let s = tauri::async_runtime::spawn_blocking(move || tote_core::append::add_to_zip(&zip, &dest, &inputs, mode, level))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    Ok(Some(Added {
+        files: s.files,
+        dirs: s.dirs,
+        replaced: s.replaced,
+        skipped: s.skipped.len(),
+        fell_back: mode == tote_core::append::AppendMode::Fast && s.mode_used == tote_core::append::AppendMode::Safe,
+    }))
+}
+
 /// ダブルクリック: 1ファイルだけ一時フォルダに展開して、関連付けられたアプリで開く。
 #[tauri::command]
 pub async fn open_entry(state: State<'_, Viewer>, path: String) -> Result<(), String> {

@@ -34,6 +34,7 @@ pub fn run(mode: Mode) {
             viewer::open_folder,
             viewer::prepare_drag,
             viewer::start_drag,
+            viewer::add_files,
             settings::get_state,
             settings::get_config,
             settings::save_config,

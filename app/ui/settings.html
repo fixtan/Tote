@@ -53,8 +53,8 @@
     </section>
 
     <section>
-      <h2>ZIPへの追加 <span class="tag">今後のバージョンで有効</span></h2>
-      <p class="note">書庫の中へファイルをドロップして追加する機能の書き込み方です。選んだ内容は保存され、機能が入ったときに使われます。</p>
+      <h2>ZIPへの追加</h2>
+      <p class="note">ビューアで開いているZIPへファイルをドロップして追加するときの書き込み方です。同名のファイルがあって置き換えるときは、高速優先でも安全優先で書き込みます。</p>
       <label class="radio"><input type="radio" name="append" value="safe"> <b>安全優先</b>：一時ファイルへ書いてから差し替え。途中で止まっても元の書庫は無事（大きい書庫ではコピーに時間がかかる）</label>
       <label class="radio"><input type="radio" name="append" value="fast"> <b>高速優先</b>：書庫の末尾へその場で追記。速いが、途中で止まると書庫が壊れることがある</label>
     </section>

@@ -1,6 +1,6 @@
 [package]
 name = "tote"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.94"
 
@@ -10,7 +10,7 @@ default = ["viewer"]
 viewer = ["dep:tauri", "dep:tauri-plugin-dialog", "dep:drag", "dep:tauri-build"]
 
 [dependencies]
-tote-core = { version = "0.3.0", path = "../core" }
+tote-core = { version = "0.4.0", path = "../core" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0"
 tauri = { version = "2.12.1", features = ["custom-protocol"], optional = true }

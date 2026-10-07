@@ -11,6 +11,7 @@
     stInfo: $('stInfo'), stSel: $('stSel'), btnUp: $('btnUp'),
     btnAll: $('btnExtractAll'), btnSel: $('btnExtractSel'), btnSettings: $('btnSettings'),
     toast: $('toast'), toastMsg: $('toastMsg'), toastAct: $('toastAct'),
+    drop: $('drop'), dropBox: $('dropBox'),
     dlg: $('dlg'), dlgMsg: $('dlgMsg'), dlgOk: $('dlgOk'),
   };
 
@@ -323,6 +324,55 @@
     press = null;
     try { await invoke('start_drag', { paths }); }
     catch (err) { toast(String(err), { error: true }); }
+  }
+
+  // ------------------------------------------------------------ ドロップで追加
+
+  const canAdd = () => !!archive && archive.info.format === 'ZIP';
+  const ownDrag = (paths) => paths.length > 0 && paths.every((p) => /tote-(drag|open)/.test(p));
+
+  function showDrop(on, paths = []) {
+    if (!on || !archive || ownDrag(paths)) { els.drop.hidden = true; return; }
+    const ok = canAdd();
+    els.drop.classList.toggle('deny', !ok);
+    els.dropBox.textContent = ok
+      ? `ここにドロップして追加\n（追加先: ${cwd === '' ? archive.name : cwd}）`
+      : `${archive.info.format || 'この形式'} の書庫には追加できません\n（追加できるのは ZIP のみです）`;
+    els.drop.hidden = false;
+  }
+
+  async function reload() {
+    archive = await invoke('load_archive');
+    root = T.buildTree(archive.info.entries);
+    stats = T.stats(archive.info.entries, root);
+    if (cwd !== '' && nodeAt(cwd) === root) cwd = '';
+    selected = new Set();
+    anchor = null;
+    renderWarnings();
+    render();
+  }
+
+  function addDropped(paths) {
+    if (!paths.length || ownDrag(paths)) return;
+    if (!canAdd()) { toast(`${archive ? archive.info.format : 'この形式'} の書庫には追加できません（ZIPのみ）`, { error: true }); return; }
+    return withBusy(async () => {
+      toast('追加中…', { sticky: true });
+      const r = await invoke('add_files', { paths, dest: cwd });
+      if (!r) { hideToast(); return; }
+      await reload();
+      let msg = `${r.files.toLocaleString('ja-JP')} 個のファイルを追加しました`;
+      if (r.replaced) msg += `（同名の ${r.replaced} 個を置き換え）`;
+      if (r.skipped) msg += `（${r.skipped} 個のリンク等はスキップ）`;
+      if (r.fellBack) msg += '。置き換えがあったため安全な方式で書き込みました';
+      toast(msg, { ms: 10000 });
+    });
+  }
+
+  const ev = window.__TAURI__.event;
+  if (ev) {
+    ev.listen('tauri://drag-enter', (e) => showDrop(true, (e.payload && e.payload.paths) || []));
+    ev.listen('tauri://drag-leave', () => showDrop(false));
+    ev.listen('tauri://drag-drop', (e) => { showDrop(false); addDropped((e.payload && e.payload.paths) || []); });
   }
 
   // ------------------------------------------------------------ イベント

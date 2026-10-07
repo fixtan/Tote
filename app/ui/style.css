@@ -213,3 +213,18 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .radio { display: flex; align-items: flex-start; gap: 8px; padding: 6px 4px; line-height: 1.6; cursor: pointer; }
 .radio input { margin-top: 3px; }
 .foot { display: flex; flex-direction: column; align-items: flex-start; }
+
+/* ドロップ追加のオーバーレイ */
+#drop {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(10, 12, 18, 0.72);
+  pointer-events: none;
+}
+#drop[hidden] { display: none; }
+#dropBox {
+  padding: 28px 40px; border: 2px dashed #5aa0e0; border-radius: 14px;
+  background: rgba(30, 40, 60, 0.9); color: #dbe8ff; font-size: 16px; text-align: center;
+  max-width: 80%; overflow-wrap: anywhere; white-space: pre-line;
+}
+#drop.deny #dropBox { border-color: #a05a5a; color: #ffc4c4; }
