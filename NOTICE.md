@@ -8,5 +8,6 @@ Tote は次のオープンソースのライブラリを使っています。
   詳細: https://www.rarlab.com/
 - **zip**, **sevenz-rust2**, **cab**, **delharc**, **tar**, **flate2** — ZIP / 7z / CAB / LZH / tar / gzip の読み書き。
 - **tauri**, **drag**, **encoding_rs**, **serde**, **time** ほか — 画面・ドラッグ・文字コード変換など。
+- **lzma-rust2**（Apache-2.0）— 7z の LZMA2 展開。壊れた入力で無限ループになる問題の修正（進捗がなければエラーにする）を入れた版を `vendor/lzma-rust2` に同梱しています。
 
 各ライブラリのライセンスは、それぞれの配布元（crates.io）を参照してください。

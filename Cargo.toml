@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["core", "app"]
+exclude = ["vendor"]
 
 [profile.release]
 opt-level = 3
@@ -8,3 +9,9 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+
+# lzma-rust2 0.21.0 は、壊れた入力（7z で間違ったパスワードを使った場合など）で
+# LZMA2 の読み込みが無限ループになることがある。進捗がなければエラーにする修正を入れた版を使う。
+# 本家が直ったら外す。
+[patch.crates-io]
+lzma-rust2 = { path = "vendor/lzma-rust2" }
