@@ -100,6 +100,10 @@ impl Kind {
 
 /// 形式を判定する。先頭バイトを優先し、分からなければ拡張子で決める。
 pub fn detect(path: &Path) -> Result<Kind, Error> {
+    // フォルダを渡されると、Windows では File::open が「アクセスが拒否されました」になって、原因が分からない
+    if path.is_dir() {
+        return Err(Error::Unsupported("フォルダは開けません。書庫のファイル（zip / 7z / rar など）を指定してください".into()));
+    }
     let mut f = File::open(path).map_err(io_err(path))?;
     let len = f.metadata().map_err(io_err(path))?.len();
     let mut head = vec![0u8; 512];

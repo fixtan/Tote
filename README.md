@@ -4,6 +4,10 @@
 
 ![Toteの設定画面](docs/settings.webp)
 
+![書庫を作成ダイアログ](docs/create.webp)
+
+![書庫のビューア](docs/viewer.webp)
+
 | 版 | 内容 |
 |---|---|
 | v0.1.0 | ZIP作成（右クリック / 送る / D&D） |
@@ -13,6 +17,7 @@
 | v0.5.0 | ISO（ISO 9660 / Joliet / Rock Ridge）の閲覧と展開 |
 | v0.6.0 | 「書庫を作成…」ダイアログ（ZIP / 7z / tar.gz / tar、圧縮レベル、パスワード） |
 | v0.7.0 | ZIP / 7z のパスワード付き書庫の展開（名前まで暗号化された 7z も可）、Linux 版（.deb / .rpm / .AppImage）と GitHub Actions のリリース |
+| v0.7.1 | フォルダを開こうとしたときの案内（「アクセスが拒否されました」だった）。書庫を作成ダイアログの表示の修正（ZIP で出ていた「固体圧縮」「名前も暗号化」を隠す。保存先の `D:\` が `\:D` と見える表示を直す） |
 
 ## ビルド (Windows)
     cargo build --release
@@ -72,7 +77,7 @@ Releases の `.deb` / `.rpm` / `.AppImage` を入れると、アプリメニュ�
 - app/   exe（引数処理、複数選択の集約、設定、レジストリ登録）、`gui.rs`/`viewer.rs`/`settings.rs`（Tauri）、`ui/`（画面）
 
 ## 今後
-RAR のパスワード、Linux 版（`.deb/.AppImage`）、右クリックメニューの整理、UDF の ISO
+RAR のパスワード、右クリックメニューの整理、UDF の ISO、巨大な ISO からのドラッグ取り出しの高速化
 
 ## ライセンス
 MIT License（[LICENSE](LICENSE)）。使っているライブラリの表記は [NOTICE.md](NOTICE.md) を参照（RAR展開に UnRAR のソースを使用）。

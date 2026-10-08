@@ -16,6 +16,8 @@
 }
 
 * { box-sizing: border-box; }
+/* hidden 属性は、display を指定したクラス (.radio / .field など) に負けるので、ここで確実に隠す */
+[hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; }
 body {
   display: flex;
@@ -230,7 +232,10 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 #drop.deny #dropBox { border-color: #a05a5a; color: #ffc4c4; }
 
 /* 書庫作成ダイアログ */
-.path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; user-select: text; }
+/* 長いパスは、左を省略して、末尾を見せる (外側を rtl に)。中身は ltr で隔離する。
+   中身まで rtl だと、先頭の「D:\」が「\:D」のように並び替わる */
+.pathbox { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.path { direction: ltr; unicode-bidi: isolate; user-select: text; }
 .namebox { display: flex; align-items: center; gap: 4px; flex: 1; justify-content: flex-end; }
 .namebox input { flex: 1; min-width: 200px; max-width: 360px; }
 .field input[type="password"], .field input:not([type]) { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; min-width: 280px; }

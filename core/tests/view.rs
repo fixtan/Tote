@@ -254,3 +254,13 @@ fn extracted_file_keeps_modified_time() {
     // 2020-05-17 は UTC で 1589673600 前後。タイムゾーン差を見込んで±1日で確認
     assert!((1589587200..=1589760000).contains(&secs), "mtime={secs}");
 }
+
+#[test]
+fn folder_is_not_opened_as_archive() {
+    // フォルダを渡すと、Windows では「アクセスが拒否されました」になって原因が分からない。分かる文面で断る
+    let dir = std::env::temp_dir().join("tote-test-folder-open");
+    let _ = fs::create_dir_all(&dir);
+    let err = tote_core::view::list(&dir).unwrap_err().to_string();
+    assert!(err.contains("フォルダは開けません"), "{err}");
+    let _ = fs::remove_dir_all(&dir);
+}

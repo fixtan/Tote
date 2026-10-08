@@ -165,6 +165,18 @@ async function boot({ init = {}, run = null, pick = 'D:\\out' } = {}) {
   assert.ok(s.calls.some((c) => c[0] === 'create_close'));
   ok('フォルダで表示／閉じる');
 
+  // 12. CSS: hidden が display に負けない／保存先は「ltr で隔離」して D:\ が崩れない
+  {
+    const fs = require('node:fs'), path = require('node:path');
+    const css = fs.readFileSync(path.join(__dirname, '../../ui/style.css'), 'utf8');
+    const html = fs.readFileSync(path.join(__dirname, '../../ui/create.html'), 'utf8');
+    assert.match(css, /\[hidden\]\s*\{\s*display:\s*none\s*!important/, 'hidden 属性は、.radio / .field の display に負けない');
+    assert.match(css, /\.path\s*\{[^}]*direction:\s*ltr[^}]*unicode-bidi:\s*isolate/, '保存先の中身は ltr で隔離する');
+    assert.match(css, /\.pathbox\s*\{[^}]*direction:\s*rtl/, '外側は rtl（左を省略して末尾を見せる）');
+    assert.match(html, /class="pathbox"><span id="dir" class="path">/, '#dir は .pathbox の中');
+  }
+  ok('CSS: hidden が効く／保存先の向き');
+
   console.log(`\nall ${n} passed`);
   process.exit(0);
 })().catch((e) => { console.error('FAIL:', e); process.exit(1); });
